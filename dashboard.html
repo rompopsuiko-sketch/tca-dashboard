@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TCA-Connect Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0D1117; color: #E6EDF3; font-family: system-ui, sans-serif; padding: 24px; }
+  h1 { font-size: 28px; color: #fff; margin-bottom: 4px; }
+  .sub { color: #8B949E; font-size: 14px; margin-bottom: 24px; }
+  .filters { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .btn { padding: 8px 16px; border-radius: 8px; border: 1px solid #30363D; background: #161B22; color: #fff; cursor: pointer; font-size: 14px; }
+  .btn.active { background: #238636; border-color: #238636; }
+  .btn-refresh { background: #161B22; color: #8B949E; margin-left: auto; }
+  .stats { display: flex; gap: 16px; margin-bottom: 24px; }
+  .stat { background: #161B22; border: 1px solid #30363D; border-radius: 12px; padding: 16px 24px; text-align: center; min-width: 100px; }
+  .stat-num { font-size: 32px; font-weight: bold; color: #3FB950; }
+  .stat-label { font-size: 12px; color: #8B949E; margin-top: 4px; }
+  .table-wrap { border-radius: 12px; border: 1px solid #30363D; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: #161B22; }
+  th { padding: 12px 16px; text-align: left; color: #8B949E; font-size: 13px; border-bottom: 1px solid #30363D; }
+  tr:nth-child(even) { background: #1C2128; }
+  tr:nth-child(odd) { background: #161B22; }
+  td { padding: 12px 16px; font-size: 14px; }
+  .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+  .badge-dhl { background: #0F2D16; color: #3FB950; }
+  .badge-ogolna { background: #1A1A2E; color: #79C0FF; }
+  .status-active { color: #3FB950; font-weight: bold; }
+  .status-pause { color: #E3B341; font-weight: bold; }
+  .status-inactive { color: #F85149; font-weight: bold; }
+  .footer { color: #8B949E; font-size: 12px; text-align: center; margin-top: 24px; }
+  .loading { text-align: center; color: #8B949E; padding: 40px; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<h1>🚛 TCA-Connect</h1>
+<p class="sub">Dashboard dyspozytora</p>
+
+<div class="filters">
+  <button class="btn active" onclick="setFilter('all', this)">Wszyscy</button>
+  <button class="btn" onclick="setFilter('active', this)">🟢 Aktywni</button>
+  <button class="btn" onclick="setFilter('dhl', this)">DHL</button>
+  <button class="btn" onclick="setFilter('ogolna', this)">Ogólna</button>
+  <button class="btn btn-refresh" onclick="loadData()">🔄 Odśwież</button>
+  <button class="btn" onclick="generatePDF()" style="background:#6E40C9; border-color:#6E40C9;">📄 Pobierz PDF</button>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-num" id="total">-</div><div class="stat-label">Kierowców</div></div>
+  <div class="stat"><div class="stat-num" id="active">-</div><div class="stat-label">W trasie</div></div>
+  <div class="stat"><div class="stat-num" id="onbreak">-</div><div class="stat-label">Na przerwie</div></div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+  <tr>
+    <th>Kierowca</th>
+    <th>Auto</th>
+    <th>Grupa</th>
+    <th>Status</th>
+    <th>Start</th>
+    <th>Koniec</th>
+    <th>Skąd</th>
+    <th>Dokąd</th>
+    <th>Km</th>
+    <th>Pauzy 9h</th>
+    <th>Czas</th>
+  </tr>
+</thead>
+    <tbody id="tbody">
+      <tr><td colspan="8" class="loading">Ładowanie...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p class="footer" id="footer">Ładowanie...</p>
+
+<script>
+  const SUPABASE_URL = 'https://ckfxywooebwsfudmnzdy.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrZnh5d29vZWJ3c2Z1ZG1uemR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNDU5NjAsImV4cCI6MjEwMTkyMTk2MH0.ObKGwhfBr9SOWThLr4ob5N6RwRjpGhwK-cZoEhs1_-M';
+
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let allData = [];
+let currentFilter = 'all';
+
+async function loadData() {
+  const { data, error } = await db
+    .from('shifts')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) { console.error(error); return; }
+  allData = data || [];
+  renderTable();
+  document.getElementById('footer').textContent =
+    'Ostatnia aktualizacja: ' + new Date().toLocaleTimeString('pl-PL') + ' · Auto-odświeżanie co 30s';
+}
+
+function getLatestPerDriver(data) {
+  const map = {};
+  data.forEach(s => {
+    if (!map[s.driver_name]) map[s.driver_name] = s;
+  });
+  return Object.values(map);
+}
+
+function getStatus(shift) {
+  if (shift.status === 'finished') {
+    if (shift.pause_end) {
+      const end = new Date(shift.pause_end);
+      if (end > new Date()) {
+        const t = end.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+        return { text: '🟡 Przerwa do ' + t, cls: 'status-pause' };
+      }
+    }
+    return { text: '🔴 Nieaktywny', cls: 'status-inactive' };
+  }
+  if (shift.current_activity === 'ZAŁADUNEK') {
+    return { text: '📦 Załadunek', cls: 'status-loading' };
+  }
+  if (shift.current_activity === 'ROZŁADUNEK') {
+    return { text: '📤 Rozładunek', cls: 'status-loading' };
+  }
+  return { text: '🟢 W trasie', cls: 'status-active' };
+}
+
+function calcPauseUsage(driverName) {
+  const driverShifts = allData
+    .filter(s => s.driver_name === driverName && s.start_time)
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+  let used = 0;
+  for (let i = 0; i < driverShifts.length; i++) {
+    const shift = driverShifts[i];
+    if (i > 0 && driverShifts[i - 1].end_time) {
+      const restH = (new Date(shift.start_time) - new Date(driverShifts[i - 1].end_time)) / 3600000;
+      if (restH >= 24) {
+        used = 0;
+      } else if (restH < 11) {
+        used++;
+      }
+    }
+    if (shift.end_time) {
+      const durationH = (new Date(shift.end_time) - new Date(shift.start_time)) / 3600000;
+      if (durationH > 13) used++;
+    }
+  }
+  return used;
+}
+
+function getTimerInfo(shift) {
+  if (shift.status === 'active' && shift.start_time) {
+    return { mode: 'elapsed', ref: shift.start_time };
+  }
+  if (shift.status === 'finished' && shift.end_time) {
+    return { mode: 'pause', ref: shift.end_time, target: shift.pause_end };
+  }
+  return null;
+}
+
+function formatDuration(ms) {
+  if (ms < 0) ms = 0;
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}h ${m}m`;
+}
+
+function renderTable() {
+  const latestAll = getLatestPerDriver(allData);
+
+  let drivers = latestAll;
+  if (currentFilter === 'active') drivers = drivers.filter(s => s.status === 'active');
+  if (currentFilter === 'dhl') drivers = drivers.filter(s => s.group_type === 'DHL');
+  if (currentFilter === 'ogolna') drivers = drivers.filter(s => s.group_type === 'Ogólna');
+
+  document.getElementById('total').textContent = drivers.length;
+  document.getElementById('active').textContent = drivers.filter(d => d.status === 'active').length;
+  document.getElementById('onbreak').textContent = drivers.filter(d => d.status === 'finished').length;
+
+  const tbody = document.getElementById('tbody');
+  if (drivers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" class="loading">Brak danych</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = drivers.map(s => {
+    const status = getStatus(s);
+    const km = (s.start_km && s.end_km) ? (s.end_km - s.start_km) + ' km' : '—';
+    const opts = { hour: '2-digit', minute: '2-digit' };
+    const startTime = s.start_time
+      ? new Date(s.start_time).toLocaleTimeString('pl-PL', opts)
+      : new Date(s.created_at).toLocaleTimeString('pl-PL', opts);
+    const endTime = s.end_time
+      ? new Date(s.end_time).toLocaleTimeString('pl-PL', opts)
+      : '—';
+    const badgeCls = s.group_type === 'DHL' ? 'badge-dhl' : 'badge-ogolna';
+    const shortPauses = calcPauseUsage(s.driver_name);
+    const pauseCls = shortPauses > 3 ? 'style="color:#d32f2f;font-weight:bold"' : '';
+
+    const timerInfo = getTimerInfo(s);
+    const timerAttr = timerInfo
+      ? `data-timer-ref="${timerInfo.ref}" data-timer-mode="${timerInfo.mode}" ${timerInfo.target ? `data-timer-target="${timerInfo.target}"` : ''}`
+      : '';
+
+    return `<tr>
+      <td>${s.driver_name}</td>
+      <td>${s.truck}</td>
+      <td><span class="badge ${badgeCls}">${s.group_type}</span></td>
+      <td class="${status.cls}">${status.text}</td>
+      <td>${startTime}</td>
+      <td>${endTime}</td>
+      <td>${s.start_city || '—'}</td>
+      <td>${s.end_city || '—'}</td>
+      <td>${km}</td>
+      <td ${pauseCls}>${shortPauses}/3</td>
+      <td class="timer-cell" ${timerAttr}>—</td>
+    </tr>`;
+  }).join('');
+
+  updateTimers();
+}
+
+function updateTimers() {
+  document.querySelectorAll('.timer-cell[data-timer-ref]').forEach(cell => {
+    const ref = new Date(cell.getAttribute('data-timer-ref'));
+    const mode = cell.getAttribute('data-timer-mode');
+    const now = new Date();
+
+    if (mode === 'elapsed') {
+      cell.textContent = 'Jedzie: ' + formatDuration(now - ref);
+    } else if (mode === 'pause') {
+      const target = cell.getAttribute('data-timer-target');
+      const stoodFor = formatDuration(now - ref);
+      if (target) {
+        const remain = new Date(target) - now;
+        cell.textContent = remain > 0
+          ? `Stoi: ${stoodFor} (jeszcze ~${formatDuration(remain)})`
+          : `Stoi: ${stoodFor} (min. czas osiągnięty)`;
+      } else {
+        cell.textContent = `Stoi: ${stoodFor}`;
+      }
+    }
+  });
+}
+
+setInterval(updateTimers, 60000);
+loadData();
+
+
+setInterval(loadData, 30000);
+  
+  async function generatePDF() {
+  const driverName = prompt('Podaj imię kierowcy:');
+  if (!driverName) return;
+
+  const { data: shifts } = await db
+    .from('shifts')
+    .select('*')
+    .ilike('driver_name', '%' + driverName + '%')
+    .order('created_at', { ascending: true });
+
+  const { data: fuels } = await db
+    .from('fuels')
+    .select('*')
+    .ilike('driver_name', '%' + driverName + '%')
+    .order('created_at', { ascending: true });
+
+  if (!shifts || shifts.length === 0) {
+    alert('Brak danych dla: ' + driverName);
+    return;
+  }
+
+  const name = shifts[0].driver_name;
+  const trucksUsed = [...new Set(shifts.map(s => s.truck).filter(Boolean))];
+  const truckLabel = trucksUsed.join(', ');
+  const month = new Date(shifts[0].created_at)
+    .toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
+
+  // палітра пастельних кольорів під кожну машину
+  const palette = ['#e3f2fd', '#f1f8e9', '#fff3e0', '#f3e5f5', '#e0f2f1', '#fce4ec'];
+  const truckColor = {};
+  trucksUsed.forEach((t, i) => truckColor[t] = palette[i % palette.length]);
+
+  // групуємо зміни по truck, зберігаючи хронологію всередині групи
+  const groups = {};
+  shifts.forEach(s => {
+    const key = s.truck || 'Bez auta';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  });
+
+  let blocksHtml = '';
+  let grandKm = 0;
+  let grandLiters = 0;
+
+  Object.keys(groups).forEach(truck => {
+    const truckShifts = groups[truck];
+    const bg = truckColor[truck] || '#f5f5f5';
+    let truckKm = 0;
+    let truckLiters = 0;
+    let rows = '';
+
+    truckShifts.forEach(s => {
+      const date = new Date(s.created_at).toLocaleDateString('pl-PL');
+      const startTime = s.start_time
+        ? new Date(s.start_time).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+        : '—';
+      const endTime = s.end_time
+        ? new Date(s.end_time).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+        : '—';
+      const km = (s.start_km && s.end_km) ? s.end_km - s.start_km : 0;
+      truckKm += km;
+
+      rows += `<tr style="background:${bg}">
+        <td>${date}</td>
+        <td>${s.start_city || '—'}</td>
+        <td>${s.end_city || '—'}</td>
+        <td>${startTime}</td>
+        <td>${s.start_km || '—'}</td>
+        <td>${endTime}</td>
+        <td>${s.end_km || '—'}</td>
+        <td>${km || '—'}</td>
+      </tr>`;
+
+      const shiftFuels = (fuels || []).filter(f => f.shift_id === s.id);
+      shiftFuels.forEach(f => {
+        truckLiters += parseFloat(f.liters) || 0;
+        rows += `<tr style="background:${bg}; font-style:italic;">
+          <td>${date}</td>
+          <td colspan="3" style="color:#e65100; font-weight:bold">⛽ TANKOWANIE</td>
+          <td>${f.km} km</td>
+          <td>—</td>
+          <td>${f.liters} L</td>
+          <td>—</td>
+        </tr>`;
+      });
+    });
+
+    grandKm += truckKm;
+    grandLiters += truckLiters;
+
+    blocksHtml += `
+      <tr><td colspan="8" style="background:${bg}; font-weight:bold; padding:8px; border-top:2px solid #263238;">
+        🚛 ${truck}
+      </td></tr>
+      ${rows}
+      <tr style="background:${bg}; font-weight:bold;">
+        <td colspan="7" style="text-align:right">Razem dla ${truck}:</td>
+        <td>${truckKm} km / ${truckLiters.toFixed(1)}L</td>
+      </tr>`;
+  });
+
+  const html = `<!DOCTYPE html>
+  <html><head>
+  <meta charset="UTF-8">
+  <title>Karta pracy - ${name}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; padding: 20px; }
+    h2 { text-align: center; margin-bottom: 4px; }
+    .info { text-align: center; margin-bottom: 16px; color: #555; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #263238; color: #fff; padding: 6px 8px; text-align: left; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+    .grand-total { font-weight: bold; background: #e8f5e9 !important; }
+    .status-loading { color: #f57c00; font-weight: bold; }
+  </style>
+  </head><body>
+  <h2>TCA — Karta pracy i tankowania</h2>
+  <p class="info">Kierowca: <b>${name}</b> | Miesiąc: <b>${month}</b> | Auta: <b>${truckLabel}</b></p>
+  <table>
+   <thead><tr>
+  <th>Data</th><th>Skąd</th><th>Dokąd</th>
+  <th>Godz. wyjazdu</th><th>Stan km przed</th>
+  <th>Godz. przyjazdu</th><th>Stan km po</th>
+  <th>Przejechane km</th>
+</tr></thead>
+    <tbody>
+      ${blocksHtml}
+      <tr class="grand-total">
+        <td colspan="7" style="text-align:right">RAZEM (wszystkie auta):</td>
+        <td>${grandKm} km / ${grandLiters.toFixed(1)}L</td>
+      </tr>
+    </tbody>
+  </table>
+  <script>window.print();<\/script>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+
+</script>
+</body>
+</html>
