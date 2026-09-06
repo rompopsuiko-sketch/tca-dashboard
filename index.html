@@ -39,6 +39,10 @@
     padding: 8px 12px; border-radius: 8px; border: 1px solid #30363D;
     background: #161B22; color: #E6EDF3; font-size: 14px;
   }
+  .report-panel { background: #161B22; border: 1px solid #30363D; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+  .rp-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .rp-row:last-child { margin-bottom: 0; }
+  .rp-label { color: #8B949E; font-size: 13px; min-width: 100px; }
   .m-info { color: #8B949E; font-size: 13px; margin-bottom: 16px; }
   .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
   .m-card { background: #161B22; border: 1px solid #30363D; border-radius: 10px; overflow: hidden; }
@@ -65,7 +69,31 @@
   <button class="btn" onclick="setFilter('dhl', this)">DHL</button>
   <button class="btn" onclick="setFilter('ogolna', this)">Ogólna</button>
   <button class="btn btn-refresh" onclick="loadData()">🔄 Odśwież</button>
-  <button class="btn" onclick="generatePDF()" style="background:#6E40C9; border-color:#6E40C9;">📄 Pobierz PDF</button>
+  <button class="btn" onclick="toggleReportPanel()" style="background:#6E40C9; border-color:#6E40C9;">📄 Pobierz PDF</button>
+</div>
+
+<div class="report-panel" id="report-panel" hidden>
+  <div class="rp-row">
+    <span class="rp-label">Typ raportu:</span>
+    <button class="btn active" id="rt-work" onclick="setReportType('work')">📋 Karta pracy</button>
+    <button class="btn" id="rt-fuel" onclick="setReportType('fuel')">⛽ Tankowanie</button>
+  </div>
+  <div class="rp-row">
+    <span class="rp-label">Kierowca:</span>
+    <select id="rp-driver"><option value="">— wybierz kierowcę —</option></select>
+  </div>
+  <div class="rp-row">
+    <span class="rp-label">Okres:</span>
+    <button class="btn active" id="rp-cur" onclick="setPeriodPreset('current')">Bieżący miesiąc</button>
+    <button class="btn" id="rp-prev" onclick="setPeriodPreset('prev')">Poprzedni miesiąc</button>
+    <input type="date" id="rp-from" onchange="onPeriodEdit()" title="Data od">
+    <input type="date" id="rp-to" onchange="onPeriodEdit()" title="Data do">
+  </div>
+  <div class="rp-row">
+    <span class="rp-label"></span>
+    <button class="btn" onclick="runReport()" style="background:#6E40C9; border-color:#6E40C9;">📄 Generuj PDF</button>
+    <button class="btn" onclick="toggleReportPanel(false)">Anuluj</button>
+  </div>
 </div>
 
 <div class="stats">
@@ -296,32 +324,121 @@ loadData();
 
 setInterval(loadData, 30000);
   
-  async function generatePDF() {
-  const driverName = prompt('Podaj imię kierowcy:');
-  if (!driverName) return;
+  /* ===================== RAPORTY PDF ===================== */
 
+let reportType = 'work';
+
+// Панель відкривається кнопкою "Pobierz PDF". При першому відкритті
+// період одразу виставляється на поточний місяць.
+function toggleReportPanel(show) {
+  const panel = document.getElementById('report-panel');
+  const open = (show === undefined) ? panel.hidden : show;
+  panel.hidden = !open;
+  if (!open) return;
+  fillReportDrivers();
+  if (!document.getElementById('rp-from').value) setPeriodPreset('current');
+}
+
+function setReportType(type) {
+  reportType = type;
+  document.getElementById('rt-work').classList.toggle('active', type === 'work');
+  document.getElementById('rt-fuel').classList.toggle('active', type === 'fuel');
+}
+
+// Список водіїв беремо з уже завантажених змін.
+// Вибір зберігаємо — інакше авто-оновлення раз на 30с скидало б його.
+function fillReportDrivers() {
+  const sel = document.getElementById('rp-driver');
+  const prev = sel.value;
+  const names = [...new Set(allData.map(s => s.driver_name).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">— wybierz kierowcę —</option>' +
+    names.map(n => `<option value="${n}">${n}</option>`).join('');
+  if (names.includes(prev)) sel.value = prev;
+}
+
+// YYYY-MM-DD у локальному часі. Через toISOString не можна —
+// він переводить у UTC і на початку/кінці місяця з'їдає день.
+function fmtDateInput(d) {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function setPeriodPreset(preset) {
+  const now = new Date();
+  let from, to;
+  if (preset === 'current') {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    to = new Date(now.getFullYear(), now.getMonth(), 0); // день 0 = останній день попереднього місяця
+  }
+  document.getElementById('rp-from').value = fmtDateInput(from);
+  document.getElementById('rp-to').value = fmtDateInput(to);
+  document.getElementById('rp-cur').classList.toggle('active', preset === 'current');
+  document.getElementById('rp-prev').classList.toggle('active', preset === 'prev');
+}
+
+// Дати правили руками — жоден пресет більше не підсвічений
+function onPeriodEdit() {
+  document.getElementById('rp-cur').classList.remove('active');
+  document.getElementById('rp-prev').classList.remove('active');
+}
+
+function getReportRange() {
+  const fromV = document.getElementById('rp-from').value;
+  const toV = document.getElementById('rp-to').value;
+  if (!fromV || !toV) { alert('Wybierz okres (od / do).'); return null; }
+  const from = new Date(fromV + 'T00:00:00');
+  const to = new Date(toV + 'T23:59:59.999');
+  if (from > to) { alert('Data "od" jest późniejsza niż data "do".'); return null; }
+  return {
+    fromISO: from.toISOString(),
+    toISO: to.toISOString(),
+    label: from.toLocaleDateString('pl-PL') + ' – ' + to.toLocaleDateString('pl-PL')
+  };
+}
+
+function runReport() {
+  const driver = document.getElementById('rp-driver').value;
+  if (!driver) { alert('Wybierz kierowcę.'); return; }
+  const range = getReportRange();
+  if (!range) return;
+  if (reportType === 'work') generateWorkPDF(driver, range);
+  else generateFuelPDF(driver, range);
+}
+
+function openPrintWindow(html) {
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+
+async function generateWorkPDF(name, range) {
   const { data: shifts } = await db
     .from('shifts')
     .select('*')
-    .ilike('driver_name', '%' + driverName + '%')
-    .order('created_at', { ascending: true });
-
-  const { data: fuels } = await db
-    .from('fuels')
-    .select('*')
-    .ilike('driver_name', '%' + driverName + '%')
+    .eq('driver_name', name)
+    .gte('created_at', range.fromISO)
+    .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
 
   if (!shifts || shifts.length === 0) {
-    alert('Brak danych dla: ' + driverName);
+    alert('Brak danych dla: ' + name + '\nOkres: ' + range.label);
     return;
   }
 
-  const name = shifts[0].driver_name;
+  // Заправки тягнемо по id змін, а не по імені — тоді рядки ⛽ завжди
+  // відповідають саме тим змінам, які потрапили у звіт.
+  const { data: fuels } = await db
+    .from('fuels')
+    .select('*')
+    .in('shift_id', shifts.map(s => s.id))
+    .order('created_at', { ascending: true });
+
   const trucksUsed = [...new Set(shifts.map(s => s.truck).filter(Boolean))];
   const truckLabel = trucksUsed.join(', ');
-  const month = new Date(shifts[0].created_at)
-    .toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
 
   // палітра пастельних кольорів під кожну машину
   const palette = ['#e3f2fd', '#f1f8e9', '#fff3e0', '#f3e5f5', '#e0f2f1', '#fce4ec'];
@@ -413,7 +530,7 @@ setInterval(loadData, 30000);
   </style>
   </head><body>
   <h2>TCA — Karta pracy i tankowania</h2>
-  <p class="info">Kierowca: <b>${name}</b> | Miesiąc: <b>${month}</b> | Auta: <b>${truckLabel}</b></p>
+  <p class="info">Kierowca: <b>${name}</b> | Okres: <b>${range.label}</b> | Auta: <b>${truckLabel}</b></p>
   <table>
    <thead><tr>
   <th>Data</th><th>Skąd</th><th>Dokąd</th>
@@ -432,9 +549,145 @@ setInterval(loadData, 30000);
   <script>window.print();<\/script>
   </body></html>`;
 
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
+  openPrintWindow(html);
+}
+
+// Окремий звіт тільки по заправках: скільки, коли, на якому авто
+// і середнє спалювання між заправками.
+async function generateFuelPDF(name, range) {
+  const { data: fuels } = await db
+    .from('fuels')
+    .select('*')
+    .eq('driver_name', name)
+    .gte('created_at', range.fromISO)
+    .lte('created_at', range.toISO)
+    .order('created_at', { ascending: true });
+
+  if (!fuels || fuels.length === 0) {
+    alert('Brak tankowań dla: ' + name + '\nOkres: ' + range.label);
+    return;
+  }
+
+  // У таблиці fuels немає авта — беремо його зі зміни, до якої прив'язана заправка
+  const shiftIds = [...new Set(fuels.map(f => f.shift_id).filter(Boolean))];
+  const truckById = {};
+  if (shiftIds.length) {
+    const { data: shifts } = await db.from('shifts').select('id, truck').in('id', shiftIds);
+    (shifts || []).forEach(s => { truckById[s.id] = s.truck; });
+  }
+
+  // Групуємо по авто — лічильник км у кожної машини свій
+  const groups = {};
+  fuels.forEach(f => {
+    const truck = truckById[f.shift_id] || 'Bez auta';
+    if (!groups[truck]) groups[truck] = [];
+    groups[truck].push(f);
+  });
+
+  const palette = ['#e3f2fd', '#f1f8e9', '#fff3e0', '#f3e5f5', '#e0f2f1', '#fce4ec'];
+  let blocksHtml = '';
+  let grandLiters = 0;
+  let grandSpanKm = 0;
+  let grandLitersAfterFirst = 0;
+
+  Object.keys(groups).forEach((truck, gi) => {
+    const list = groups[truck];
+    const bg = palette[gi % palette.length];
+    let rows = '';
+    let truckLiters = 0;
+    let litersAfterFirst = 0;
+    let prevKm = null;
+
+    list.forEach((f, i) => {
+      const liters = parseFloat(f.liters) || 0;
+      const km = parseInt(f.km) || 0;
+      truckLiters += liters;
+
+      // Скільки проїхано від попередньої заправки цього авта
+      const diff = (prevKm !== null && km > prevKm) ? km - prevKm : null;
+      // Спалювання "від повного до повного": літри цієї заправки на пройдений відтинок
+      const l100 = (diff && diff > 0) ? (liters / diff * 100) : null;
+      if (i > 0) litersAfterFirst += liters;
+
+      const d = new Date(f.created_at);
+      rows += `<tr style="background:${bg}">
+        <td>${d.toLocaleDateString('pl-PL')}</td>
+        <td>${d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</td>
+        <td>${km ? km + ' km' : '—'}</td>
+        <td><b>${liters.toFixed(1)} L</b></td>
+        <td>${diff ? diff + ' km' : '—'}</td>
+        <td>${l100 ? l100.toFixed(1) + ' L/100km' : '—'}</td>
+      </tr>`;
+
+      prevKm = km || prevKm;
+    });
+
+    // Середнє по авто: літри без першої заправки / відстань між першою і останньою
+    const firstKm = parseInt(list[0].km) || 0;
+    const lastKm = parseInt(list[list.length - 1].km) || 0;
+    const spanKm = (lastKm > firstKm) ? lastKm - firstKm : 0;
+    const avg = spanKm > 0 ? (litersAfterFirst / spanKm * 100) : null;
+
+    grandLiters += truckLiters;
+    grandSpanKm += spanKm;
+    grandLitersAfterFirst += litersAfterFirst;
+
+    blocksHtml += `
+      <tr><td colspan="6" style="background:${bg}; font-weight:bold; padding:8px; border-top:2px solid #263238;">
+        🚛 ${truck} — tankowań: ${list.length}
+      </td></tr>
+      ${rows}
+      <tr style="background:${bg}; font-weight:bold;">
+        <td colspan="3" style="text-align:right">Razem dla ${truck}:</td>
+        <td>${truckLiters.toFixed(1)} L</td>
+        <td>${spanKm || '—'} km</td>
+        <td>${avg ? avg.toFixed(1) + ' L/100km' : '—'}</td>
+      </tr>`;
+  });
+
+  const grandAvg = grandSpanKm > 0 ? (grandLitersAfterFirst / grandSpanKm * 100) : null;
+
+  const html = `<!DOCTYPE html>
+  <html><head>
+  <meta charset="UTF-8">
+  <title>Raport tankowania - ${name}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; padding: 20px; }
+    h2 { text-align: center; margin-bottom: 4px; }
+    .info { text-align: center; margin-bottom: 16px; color: #555; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #263238; color: #fff; padding: 6px 8px; text-align: left; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+    .grand-total { font-weight: bold; background: #e8f5e9 !important; }
+    .note { margin-top: 14px; color: #777; font-size: 10px; }
+  </style>
+  </head><body>
+  <h2>TCA — Raport tankowania</h2>
+  <p class="info">Kierowca: <b>${name}</b> | Okres: <b>${range.label}</b> | Tankowań: <b>${fuels.length}</b></p>
+  <table>
+    <thead><tr>
+      <th>Data</th><th>Godzina</th><th>Stan licznika</th>
+      <th>Zatankowano</th><th>Od ost. tankowania</th><th>Spalanie</th>
+    </tr></thead>
+    <tbody>
+      ${blocksHtml}
+      <tr class="grand-total">
+        <td colspan="3" style="text-align:right">RAZEM (wszystkie auta):</td>
+        <td>${grandLiters.toFixed(1)} L</td>
+        <td>${grandSpanKm || '—'} km</td>
+        <td>${grandAvg ? grandAvg.toFixed(1) + ' L/100km' : '—'}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">
+    Spalanie liczone metodą „od pełna do pełna": litry danego tankowania dzielone przez dystans
+    przejechany od poprzedniego tankowania tego auta. Przy pierwszym tankowaniu w okresie nie ma
+    punktu odniesienia, dlatego w kolumnie jest „—".
+  </p>
+  <script>window.print();<\/script>
+  </body></html>`;
+
+  openPrintWindow(html);
 }
 
 /* ===================== MEDIA (zdjęcia CMR) ===================== */
