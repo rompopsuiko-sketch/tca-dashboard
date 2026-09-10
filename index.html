@@ -124,6 +124,7 @@
   .tl-head { font-size: 14px; font-weight: 600; }
   .tl-place { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .tl-note { color: var(--yellow); font-size: 12px; margin-top: 3px; }
+  .tl-manual { color: var(--yellow); font-size: 11px; margin-top: 3px; opacity: 0.9; }
   .tl-more { color: #58A6FF; font-size: 11px; cursor: pointer; margin-top: 5px; display: inline-block; }
   .tl-detail { color: var(--muted); font-size: 11px; line-height: 1.7; margin-top: 5px; }
   .tl-detail a { color: #58A6FF; }
@@ -669,6 +670,8 @@ async function loadTimeline(shiftId) {
       place: shortPlace(t.taken_city, t.taken_place),
       lat: t.taken_lat, lon: t.taken_lon, address: t.taken_address, note: t.taken_note,
       photos: [t.taken_front, t.taken_back, t.taken_left, t.taken_right].filter(Boolean),
+      // Для причепів адресу й координати показуємо одразу, без кліку
+      alwaysDetail: true, manualCheck: true,
     });
 
     if (rl !== null) {
@@ -679,6 +682,7 @@ async function loadTimeline(shiftId) {
         lat: t.released_lat, lon: t.released_lon, address: t.released_address, note: t.released_note,
         photos: [t.released_front, t.released_back, t.released_left, t.released_right].filter(Boolean),
         detail: 'Naczepa była podpięta: ' + formatDuration(rl - tk),
+        alwaysDetail: true, manualCheck: true,
       });
     }
   });
@@ -720,9 +724,22 @@ function renderTimeline(shift, items) {
       );
     }
 
+    // Причепи: якщо координат немає, а miejscowość є — kierowca wpisał ją ręcznie,
+    // bo GPS nie złapał. Trzeba to pokazać, żeby dyspozytor nie brał tego za pomiar.
+    const manual = it.manualCheck && it.lat == null && it.place && it.place !== 'Brak GPS';
+
     const photos = (it.photos || []).map(u =>
       `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" loading="lazy" alt=""></a>`
     ).join('');
+
+    // Для причепів адреса й координати відкриті одразу, для решти — під "Szczegóły"
+    let detailBlock = '';
+    if (bits.length && it.alwaysDetail) {
+      detailBlock = `<div class="tl-detail">${bits.join('<br>')}</div>`;
+    } else if (bits.length) {
+      detailBlock = `<span class="tl-more" onclick="toggleMore('${id}')">Szczegóły ▾</span>
+        <div class="tl-detail" id="${id}" hidden>${bits.join('<br>')}</div>`;
+    }
 
     return `<div class="tl-item">
       <div class="tl-time">${time}</div>
@@ -731,9 +748,9 @@ function renderTimeline(shift, items) {
         <div class="tl-head">${it.head}</div>
         ${it.place ? `<div class="tl-place">📍 ${esc(it.place)}</div>` : ''}
         ${it.detail ? `<div class="tl-place">${it.detail}</div>` : ''}
+        ${manual ? '<div class="tl-manual">✍ Miejsce wpisane ręcznie — brak sygnału GPS</div>' : ''}
         ${it.note ? `<div class="tl-note">✎ ${esc(it.note)}</div>` : ''}
-        ${bits.length ? `<span class="tl-more" onclick="toggleMore('${id}')">Szczegóły ▾</span>
-          <div class="tl-detail" id="${id}" hidden>${bits.join('<br>')}</div>` : ''}
+        ${detailBlock}
         ${photos ? `<div class="tl-photos">${photos}</div>` : ''}
       </div>
     </div>`;
