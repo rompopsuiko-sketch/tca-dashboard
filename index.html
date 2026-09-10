@@ -105,6 +105,31 @@
   .status-active { color: var(--green); font-weight: bold; }
   .status-pause { color: var(--yellow); font-weight: bold; }
   .status-inactive { color: var(--red); font-weight: bold; }
+
+  /* ---- причіп + стрічка подій зміни ---- */
+  .trailer-num { font-weight: bold; letter-spacing: 0.5px; }
+  .trailer-solo { color: var(--muted); }
+  .trailer-nophoto { color: var(--yellow); font-size: 11px; display: block; }
+  tbody tr.row-main { cursor: pointer; }
+  .chev { color: var(--muted); font-size: 10px; display: inline-block; transition: transform .15s; }
+  tr.open .chev { transform: rotate(90deg); color: var(--red); }
+  tr.detail > td { background: var(--panel); padding: 0; }
+  .tl { padding: 16px 22px 18px; }
+  .tl-title { color: var(--muted); font-size: 11px; letter-spacing: 1px; margin-bottom: 12px; }
+  .tl-item { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .tl-item:last-child { border-bottom: none; }
+  .tl-time { color: var(--muted); font-size: 12px; width: 108px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+  .tl-body { flex: 1; min-width: 0; }
+  .tl-head { font-size: 14px; font-weight: 600; }
+  .tl-place { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .tl-note { color: var(--yellow); font-size: 12px; margin-top: 3px; }
+  .tl-more { color: #58A6FF; font-size: 11px; cursor: pointer; margin-top: 5px; display: inline-block; }
+  .tl-detail { color: var(--muted); font-size: 11px; line-height: 1.7; margin-top: 5px; }
+  .tl-detail a { color: #58A6FF; }
+  .tl-photos { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tl-photos a { display: block; }
+  .tl-photos img { width: 78px; height: 78px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
   .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
   .loading { text-align: center; color: var(--muted); padding: 40px; font-size: 16px; }
   select, input[type="date"], input[type="text"] {
@@ -222,6 +247,7 @@
   <tr>
     <th>Kierowca</th>
     <th>Auto</th>
+    <th>Naczepa</th>
     <th>Grupa</th>
     <th>Status</th>
     <th>Start</th>
@@ -234,7 +260,7 @@
   </tr>
 </thead>
     <tbody id="tbody">
-      <tr><td colspan="8" class="loading">Ładowanie...</td></tr>
+      <tr><td colspan="12" class="loading">Ładowanie...</td></tr>
     </tbody>
   </table>
 </div>
@@ -296,6 +322,20 @@ let monthFuels = [];       // заправки за поточний місяц�
 let currentFilter = 'all';
 let mediaObjects = null;   // null = zakładka Media jeszcze nie wczytana
 let mediaLoading = false;
+let activeTrailers = {};   // driver_name -> причіп, який зараз закріплений
+let openShiftId = null;    // яка зміна розгорнута в стрічку подій
+
+// Екранування тексту, який вводить водій (номер причепа, uwagi, adres).
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Коротко для таблиці: "Wrocław, Amazon WRO1"
+function shortPlace(city, place) {
+  return [city, place].filter(p => p && p !== 'Brak GPS').join(', ') || (city || '—');
+}
 
 // Початок поточного місяця. Рахуємо локально, не через toISOString на даті,
 // бо той зсуває в UTC і з'їдає перший день.
@@ -318,6 +358,21 @@ async function loadData() {
     .select('liters, created_at')
     .gte('created_at', monthStart().toISOString());
   monthFuels = fuelData || [];
+
+  // Причепи, які зараз закріплені за водіями. Порожній released_at
+  // означає "ще не здано". Один рядок на водія гарантує індекс у базі.
+  const { data: trData, error: trError } = await db
+    .from('trailers_log')
+    .select('driver_name, trailer_number, taken_at, taken_front')
+    .is('released_at', null);
+
+  activeTrailers = {};
+  if (trError) {
+    // Таблиці ще нема (не запущено naczepy.sql) — колонка просто буде порожня
+    console.warn('trailers_log niedostępne:', trError.message);
+  } else {
+    (trData || []).forEach(t => { activeTrailers[t.driver_name] = t; });
+  }
 
   renderTable();
   if (mediaObjects !== null) buildMediaDriverOptions();
@@ -432,7 +487,7 @@ function renderTable() {
 
   const tbody = document.getElementById('tbody');
   if (drivers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" class="loading">Brak danych</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="loading">Brak danych</td></tr>';
     return;
   }
 
@@ -455,22 +510,51 @@ function renderTable() {
       ? `data-timer-ref="${timerInfo.ref}" data-timer-mode="${timerInfo.mode}" ${timerInfo.target ? `data-timer-target="${timerInfo.target}"` : ''}`
       : '';
 
-    return `<tr>
-      <td><div class="who"><div class="ava">${initials(s.driver_name)}</div>${s.driver_name}</div></td>
-      <td>${s.truck}</td>
+    const isOpen = s.id === openShiftId;
+
+    const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''}" onclick="toggleDetail('${s.id}')">
+      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>${esc(s.driver_name)}</div></td>
+      <td>${esc(s.truck)}</td>
+      <td>${trailerCell(s)}</td>
       <td><span class="badge ${badgeCls}">${s.group_type}</span></td>
       <td class="${status.cls}">${status.text}</td>
       <td>${startTime}</td>
       <td>${endTime}</td>
-      <td>${s.start_city || '—'}</td>
-      <td>${s.end_city || '—'}</td>
+      <td>${esc(s.start_city) || '—'}</td>
+      <td>${esc(s.end_city) || '—'}</td>
       <td>${km}</td>
       <td ${pauseCls}>${shortPauses}/3</td>
       <td class="timer-cell" ${timerAttr}>—</td>
     </tr>`;
+
+    const detailRow = isOpen
+      ? `<tr class="detail"><td colspan="12"><div class="tl" id="tl-${s.id}">
+           <div class="loading">Ładowanie zdarzeń…</div></div></td></tr>`
+      : '';
+
+    return mainRow + detailRow;
   }).join('');
 
   updateTimers();
+  // Розгорнута стрічка переживає авто-оновлення таблиці кожні 30 секунд
+  if (openShiftId) loadTimeline(openShiftId);
+}
+
+// Колонка "Naczepa". Для Ogólna без причепа пишемо Solo,
+// для BDF прочерк — ця група причепи не веде.
+function trailerCell(s) {
+  const t = activeTrailers[s.driver_name];
+  if (t) {
+    const warn = t.taken_front ? '' : '<span class="trailer-nophoto">brak zdjęć</span>';
+    return `<span class="trailer-num">${esc(t.trailer_number)}</span>${warn}`;
+  }
+  if (s.group_type === 'Ogólna') return '<span class="trailer-solo">Solo</span>';
+  return '—';
+}
+
+function toggleDetail(shiftId) {
+  openShiftId = (openShiftId === shiftId) ? null : shiftId;
+  renderTable();
 }
 
 function updateTimers() {
@@ -494,6 +578,173 @@ function updateTimers() {
       }
     }
   });
+}
+
+/* ===================== ZDARZENIA ZMIANY (стрічка) ===================== */
+// Відкривається кліком по рядку водія. Збирає в одну хронологію все,
+// що записав застосунок: старт, завантаження, заправки, CMR, причепи, фініш.
+// Кожен запит фільтрований по shift_id, тому це дешево.
+
+async function loadTimeline(shiftId) {
+  const box = document.getElementById('tl-' + shiftId);
+  if (!box) return;
+
+  const shift = allData.find(x => x.id === shiftId);
+  if (!shift) { box.innerHTML = '<div class="loading">Brak danych zmiany.</div>'; return; }
+
+  // Якщо якоїсь таблиці ще нема (не запущено naczepy.sql), supabase поверне
+  // помилку в полі error, а не кине виняток — стрічка просто буде коротша.
+  const [ev, fu, cm, tr] = await Promise.all([
+    db.from('events').select('*').eq('shift_id', shiftId),
+    db.from('fuels').select('*').eq('shift_id', shiftId),
+    db.from('cmr').select('*').eq('shift_id', shiftId),
+    db.from('trailers_log').select('*')
+      .eq('driver_name', shift.driver_name)
+      .order('taken_at', { ascending: false }).limit(20),
+  ]);
+
+  const items = [];
+  const t0 = new Date(shift.start_time || shift.created_at).getTime();
+  const t1 = shift.end_time ? new Date(shift.end_time).getTime() : Date.now();
+
+  items.push({
+    at: t0, color: 'var(--green)', head: 'Start zmiany',
+    place: shift.start_city, lat: shift.start_lat, lon: shift.start_lon,
+    detail: shift.start_km != null ? `Licznik: ${shift.start_km} km` : '',
+  });
+
+  (ev.data || []).forEach(e => {
+    items.push({
+      at: new Date(e.started_at).getTime(), color: 'var(--yellow)',
+      head: 'Start: ' + esc(e.event_type),
+      place: shortPlace(e.start_city, e.start_place),
+      lat: e.start_lat, lon: e.start_lon, address: e.start_address,
+    });
+    if (e.ended_at) {
+      items.push({
+        at: new Date(e.ended_at).getTime(), color: 'var(--yellow)',
+        head: 'Koniec: ' + esc(e.event_type),
+        place: shortPlace(e.end_city, e.end_place),
+        lat: e.end_lat, lon: e.end_lon, address: e.end_address,
+        detail: 'Trwało: ' + formatDuration(new Date(e.ended_at) - new Date(e.started_at)),
+      });
+    }
+  });
+
+  (fu.data || []).forEach(f => {
+    items.push({
+      at: new Date(f.created_at).getTime(), color: '#E3862B',
+      head: `Tankowanie — ${f.liters} L`,
+      detail: `Licznik: ${f.km} km`,
+    });
+  });
+
+  // CMR групуємо по номеру траси, щоб не було десяти однакових рядків
+  const cmrByTour = {};
+  (cm.data || []).forEach(c => {
+    const k = c.tour_number || '—';
+    if (!cmrByTour[k]) cmrByTour[k] = { at: new Date(c.created_at).getTime(), photos: [] };
+    cmrByTour[k].photos.push(c.photo_url);
+  });
+  Object.keys(cmrByTour).forEach(tour => {
+    items.push({
+      at: cmrByTour[tour].at, color: '#6E40C9',
+      head: `CMR — trasa ${esc(tour)}`,
+      detail: `Zdjęć: ${cmrByTour[tour].photos.length}`,
+      photos: cmrByTour[tour].photos,
+    });
+  });
+
+  // Причепи: показуємо ті, що перетинаються в часі з цією зміною.
+  // Причіп вибирається ще при логіні, тому може бути взятий до старту зміни.
+  (tr.data || []).forEach(t => {
+    const tk = new Date(t.taken_at).getTime();
+    const rl = t.released_at ? new Date(t.released_at).getTime() : null;
+    const overlaps = t.shift_id === shiftId || (tk <= t1 && (rl === null || rl >= t0));
+    if (!overlaps) return;
+
+    items.push({
+      at: tk, color: 'var(--red)',
+      head: `Podpięcie naczepy ${esc(t.trailer_number)}`,
+      place: shortPlace(t.taken_city, t.taken_place),
+      lat: t.taken_lat, lon: t.taken_lon, address: t.taken_address, note: t.taken_note,
+      photos: [t.taken_front, t.taken_back, t.taken_left, t.taken_right].filter(Boolean),
+    });
+
+    if (rl !== null) {
+      items.push({
+        at: rl, color: 'var(--red)',
+        head: `Oddanie naczepy ${esc(t.trailer_number)}`,
+        place: shortPlace(t.released_city, t.released_place),
+        lat: t.released_lat, lon: t.released_lon, address: t.released_address, note: t.released_note,
+        photos: [t.released_front, t.released_back, t.released_left, t.released_right].filter(Boolean),
+        detail: 'Naczepa była podpięta: ' + formatDuration(rl - tk),
+      });
+    }
+  });
+
+  if (shift.end_time) {
+    items.push({
+      at: new Date(shift.end_time).getTime(), color: 'var(--red)',
+      head: 'Koniec zmiany',
+      place: shift.end_city, lat: shift.end_lat, lon: shift.end_lon,
+      detail: [
+        shift.end_km != null ? `Licznik: ${shift.end_km} km` : '',
+        shift.pause_type ? `Przerwa ${shift.pause_type}` : '',
+      ].filter(Boolean).join(' · '),
+    });
+  }
+
+  items.sort((a, b) => a.at - b.at);
+  box.innerHTML = renderTimeline(shift, items);
+}
+
+function renderTimeline(shift, items) {
+  if (items.length === 0) return '<div class="loading">Brak zdarzeń w tej zmianie.</div>';
+
+  const day = new Date(shift.start_time || shift.created_at)
+    .toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const rows = items.map((it, i) => {
+    const time = new Date(it.at).toLocaleString('pl-PL', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+    const id = `d-${shift.id}-${i}`;
+
+    const bits = [];
+    if (it.address) bits.push('Adres: ' + esc(it.address));
+    if (it.lat != null && it.lon != null) {
+      bits.push(
+        `Współrzędne: ${Number(it.lat).toFixed(5)}, ${Number(it.lon).toFixed(5)} · ` +
+        `<a href="https://www.google.com/maps?q=${it.lat},${it.lon}" target="_blank" rel="noopener">otwórz mapę</a>`
+      );
+    }
+
+    const photos = (it.photos || []).map(u =>
+      `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" loading="lazy" alt=""></a>`
+    ).join('');
+
+    return `<div class="tl-item">
+      <div class="tl-time">${time}</div>
+      <div class="tl-dot" style="background:${it.color}"></div>
+      <div class="tl-body">
+        <div class="tl-head">${it.head}</div>
+        ${it.place ? `<div class="tl-place">📍 ${esc(it.place)}</div>` : ''}
+        ${it.detail ? `<div class="tl-place">${it.detail}</div>` : ''}
+        ${it.note ? `<div class="tl-note">✎ ${esc(it.note)}</div>` : ''}
+        ${bits.length ? `<span class="tl-more" onclick="toggleMore('${id}')">Szczegóły ▾</span>
+          <div class="tl-detail" id="${id}" hidden>${bits.join('<br>')}</div>` : ''}
+        ${photos ? `<div class="tl-photos">${photos}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="tl-title">ZDARZENIA ZMIANY · ${day}</div>${rows}`;
+}
+
+function toggleMore(id) {
+  const el = document.getElementById(id);
+  if (el) el.hidden = !el.hidden;
 }
 
 setInterval(updateTimers, 60000);
