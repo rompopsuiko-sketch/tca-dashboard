@@ -28,7 +28,7 @@
 
   /* ---- бічне меню ---- */
   .sidebar {
-    width: 230px; flex-shrink: 0;
+    width: 196px; flex-shrink: 0; transition: width .15s;
     background: var(--panel);
     border-right: 1px solid var(--border);
     padding: 22px 0;
@@ -55,8 +55,20 @@
   .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
   .side-foot { margin-top: auto; padding: 16px 20px 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 
+  /* Згорнуте меню: лишаються самі значки. Таблиця водіїв широка —
+     12 колонок, — і на ноутбуці вона не влазила, доводилось гортати вбік. */
+  .shell.nav-collapsed .sidebar { width: 58px; }
+  .shell.nav-collapsed .brand { padding: 0 0 14px; }
+  .shell.nav-collapsed .brand-logo { justify-content: center; }
+  .shell.nav-collapsed .brand-logo span,
+  .shell.nav-collapsed .brand-sub,
+  .shell.nav-collapsed .side-foot { display: none; }
+  .shell.nav-collapsed .nav { padding: 14px 8px; }
+  .shell.nav-collapsed .nav-item { font-size: 0; gap: 0; justify-content: center; padding: 11px 0; }
+  .btn-nav { padding: 8px 12px; font-size: 16px; line-height: 1; }
+
   /* ---- основна частина ---- */
-  .main { flex: 1; padding: 24px 28px; min-width: 0; }
+  .main { flex: 1; padding: 22px 20px; min-width: 0; }
   .topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
   h1 { font-size: 26px; color: var(--text); }
 
@@ -88,10 +100,10 @@
   .table-wrap { border-radius: 14px; border: 1px solid var(--border); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   thead { background: var(--card-alt); }
-  th { padding: 12px 16px; text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { padding: 10px 10px; text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   tbody tr { background: var(--card); border-bottom: 1px solid var(--border); }
   tbody tr:hover { background: var(--card-alt); }
-  td { padding: 12px 16px; font-size: 14px; }
+  td { padding: 10px 10px; font-size: 13px; }
   .who { display: flex; align-items: center; gap: 10px; }
   .ava {
     width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
@@ -266,31 +278,31 @@
     <div class="brand-sub">TRANSPORT · CARGO · AUTO</div>
   </div>
   <nav class="nav">
-    <button class="nav-item active" id="nav-drivers" onclick="setView('drivers')">
+    <button class="nav-item active" id="nav-drivers" onclick="setView('drivers')" title="Dashboard">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
       Dashboard
     </button>
-    <button class="nav-item" id="nav-kierowcy" onclick="setView('kierowcy')">
+    <button class="nav-item" id="nav-kierowcy" onclick="setView('kierowcy')" title="Kierowcy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M17 11h4M17 15h4"/></svg>
       Kierowcy
     </button>
-    <button class="nav-item" id="nav-auta" onclick="setView('auta')">
+    <button class="nav-item" id="nav-auta" onclick="setView('auta')" title="Auta">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16V7h11v9"/><path d="M13 10h4l4 3.5V16"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>
       Auta
     </button>
-    <button class="nav-item" id="nav-naczepy" onclick="setView('naczepy')">
+    <button class="nav-item" id="nav-naczepy" onclick="setView('naczepy')" title="Naczepy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="16" height="10" rx="1"/><path d="M18 16h4"/><circle cx="8" cy="18" r="1.6"/><circle cx="13" cy="18" r="1.6"/></svg>
       Naczepy
     </button>
-    <button class="nav-item" id="nav-grupy" onclick="setView('grupy')">
+    <button class="nav-item" id="nav-grupy" onclick="setView('grupy')" title="Grupy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="8" height="6" rx="1.5"/><rect x="13" y="4" width="8" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="13" y="14" width="8" height="6" rx="1.5"/></svg>
       Grupy
     </button>
-    <button class="nav-item" id="nav-media" onclick="setView('media')">
+    <button class="nav-item" id="nav-media" onclick="setView('media')" title="Dokumenty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
       Dokumenty
     </button>
-    <button class="nav-item" id="nav-reports" onclick="setView('reports')">
+    <button class="nav-item" id="nav-reports" onclick="setView('reports')" title="Raporty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
       Raporty
     </button>
@@ -301,6 +313,7 @@
 <main class="main">
 
 <div class="topbar">
+  <button class="btn btn-nav" onclick="toggleNav()" title="Zwiń / rozwiń menu">☰</button>
   <h1 id="page-title">Dashboard</h1>
   <button class="btn btn-refresh" onclick="loadData()">🔄 Odśwież</button>
   <button class="btn btn-new" id="new-badge" hidden onclick="markAllSeen()">⚡ Nowe: 0</button>
@@ -1391,6 +1404,18 @@ function renderTimeline(shift, items) {
 function toggleMore(id) {
   const el = document.getElementById(id);
   if (el) el.hidden = !el.hidden;
+}
+
+/** Згорнуте меню звільняє ~140 px — рівно те, чого бракувало таблиці. */
+function toggleNav() {
+  const shell = document.querySelector('.shell');
+  const on = shell.classList.toggle('nav-collapsed');
+  localStorage.setItem('tca_nav_collapsed', on ? '1' : '');
+}
+
+// Стан меню переживає перезавантаження сторінки
+if (localStorage.getItem('tca_nav_collapsed')) {
+  document.querySelector('.shell').classList.add('nav-collapsed');
 }
 
 setInterval(updateTimers, 60000);
