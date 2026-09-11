@@ -1005,6 +1005,121 @@ function openPrintWindow(html) {
   win.document.close();
 }
 
+/* ---------------------------------------------------------------------
+   Дні у відрядженні. Раніше у звіт потрапляли тільки зміни, тому дні,
+   коли водій стоїть на парковці під Антверпеном, зникали — хоча вони
+   оплачувані. Тепер їх дає таблиця delegations (виїзд з дому → повернення).
+   --------------------------------------------------------------------- */
+
+/** Дата без часу — щоб порівнювати саме дні, а не моменти. */
+function dayStart(v) {
+  const d = new Date(v);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+const WEEKDAYS_PL = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'];
+
+/**
+ * Таблиця "Delegacje i dni poza domem" + два лічильники.
+ * Рахуємо тільки делегації з ночівлею: виїхав і повернувся того самого дня —
+ * це звичайний робочий день, а не відрядження.
+ */
+function buildDelegationSection(shifts, delegations, range) {
+  const periodFrom = dayStart(range.fromISO);
+  const periodTo = dayStart(range.toISO);
+
+  // Дні, у які була хоч одна зміна
+  const shiftByDay = {};
+  shifts.forEach(s => {
+    const k = fmtDateInput(new Date(s.created_at));
+    (shiftByDay[k] = shiftByDay[k] || []).push(s);
+  });
+  const workDays = Object.keys(shiftByDay).length;
+
+  const overnight = (delegations || []).filter(d => {
+    const a = dayStart(d.started_at);
+    const b = dayStart(d.ended_at || new Date());
+    return b > a;
+  });
+
+  const awayDays = new Set();
+  let blocks = '';
+
+  overnight.forEach(d => {
+    const startDay = dayStart(d.started_at);
+    const endDay = dayStart(d.ended_at || new Date());
+    const from = startDay < periodFrom ? periodFrom : startDay;
+    const to = endDay > periodTo ? periodTo : endDay;
+    if (to < from) return;
+
+    let rows = '';
+    let days = 0;
+    // Місто для днів без зміни: останнє відоме на той момент
+    let lastCity = d.start_city || '—';
+
+    for (let day = from; day <= to; day = addDays(day, 1)) {
+      const k = fmtDateInput(day);
+      awayDays.add(k);
+      days++;
+      const list = shiftByDay[k];
+      const label = day.toLocaleDateString('pl-PL') + ' ' + WEEKDAYS_PL[day.getDay()];
+
+      if (list && list.length) {
+        const first = list[0];
+        const last = list[list.length - 1];
+        lastCity = last.end_city || last.start_city || lastCity;
+        rows += `<tr>
+          <td>${label}</td>
+          <td>Praca — zmiana</td>
+          <td>${(first.start_city || '—')} → ${(last.end_city || '—')}</td>
+          <td>${last.pause_type ? 'Przerwa ' + last.pause_type : '—'}</td>
+        </tr>`;
+      } else {
+        rows += `<tr style="background:#fff8e1">
+          <td>${label}</td>
+          <td style="color:#e65100; font-weight:bold">Postój — cały dzień</td>
+          <td>${lastCity}</td>
+          <td>—</td>
+        </tr>`;
+      }
+    }
+
+    const powrot = d.ended_at
+      ? fmtDay(d.ended_at) + (d.end_city ? ' (' + d.end_city + ')' : '')
+      : 'nadal w trasie';
+
+    blocks += `<tr><td colspan="4" style="background:#eceff1; font-weight:bold; padding:8px; border-top:2px solid #263238;">
+        🏠 Wyjazd ${fmtDay(d.started_at)}${d.start_city ? ' (' + d.start_city + ')' : ''} → Powrót ${powrot}
+        &nbsp;·&nbsp; ${days} dni w tym okresie
+      </td></tr>${rows}`;
+  });
+
+  const postojDays = [...awayDays].filter(k => !shiftByDay[k]).length;
+
+  const summary = `<p class="info" style="margin-top:10px">
+      Dni robocze (ze zmianą): <b>${workDays}</b>
+      &nbsp;|&nbsp; Dni w delegacji (z noclegiem): <b>${awayDays.size}</b>
+      &nbsp;|&nbsp; w tym dni bez zmiany: <b>${postojDays}</b>
+    </p>`;
+
+  if (!blocks) {
+    // Делегацій з ночівлею немає — показуємо самі лічильники,
+    // щоб було видно, що звіт їх рахував, а не пропустив.
+    return summary;
+  }
+
+  return `<h3 style="margin-top:22px">Delegacje i dni poza domem</h3>
+    <table>
+      <thead><tr><th>Data</th><th>Status</th><th>Miejsce</th><th>Odpoczynek</th></tr></thead>
+      <tbody>${blocks}</tbody>
+    </table>
+    ${summary}`;
+}
+
 async function generateWorkPDF(name, range) {
   const { data: shifts } = await db
     .from('shifts')
@@ -1026,6 +1141,21 @@ async function generateWorkPDF(name, range) {
     .select('*')
     .in('shift_id', shifts.map(s => s.id))
     .order('created_at', { ascending: true });
+
+  // Делегації — виїзди з дому, які зачепили цей період. Фільтруємо в JS:
+  // рядків мало, а два timestamp-фільтри в одному запиті тільки заважають.
+  // Якщо db/delegacje.sql ще не запущений, запит поверне помилку —
+  // тоді секції просто не буде, звіт від цього не ламається.
+  const { data: delRows } = await db
+    .from('delegations')
+    .select('*')
+    .eq('driver_name', name)
+    .lte('started_at', range.toISO)
+    .order('started_at', { ascending: true });
+
+  const delegations = (delRows || []).filter(
+    d => !d.ended_at || new Date(d.ended_at) >= new Date(range.fromISO)
+  );
 
   const trucksUsed = [...new Set(shifts.map(s => s.truck).filter(Boolean))];
   const truckLabel = trucksUsed.join(', ');
@@ -1117,6 +1247,7 @@ async function generateWorkPDF(name, range) {
     td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
     .grand-total { font-weight: bold; background: #e8f5e9 !important; }
     .status-loading { color: #f57c00; font-weight: bold; }
+    h3 { margin: 22px 0 6px; }
   </style>
   </head><body>
   <h2>TCA — Karta pracy i tankowania</h2>
@@ -1136,6 +1267,7 @@ async function generateWorkPDF(name, range) {
       </tr>
     </tbody>
   </table>
+  ${buildDelegationSection(shifts, delegations, range)}
   <script>window.print();<\/script>
   </body></html>`;
 
@@ -1327,6 +1459,16 @@ function fleetSearchHit(q, parts) {
   return parts.filter(Boolean).join(' ').toLowerCase().includes(q);
 }
 
+/**
+ * Ключ номера авто чи причепа: великі літери й цифри, без пробілів і тире.
+ * Водії вписують номер від руки, тому "dw 1234a", "DW-1234A" і "DW1234A"
+ * приходять як три різні рядки — а це одне авто. Показуємо при цьому той
+ * вигляд, який водій вписав останнім.
+ */
+function plateKey(v) {
+  return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 /** Зводить зміни, картки водіїв і причепи в три списки для вкладок. */
 function buildFleet() {
   const drivers = {}, trucks = {}, trailers = {};
@@ -1338,12 +1480,15 @@ function buildFleet() {
     }
     return drivers[name];
   }
+  // Ключ — нормалізований номер, у полі truck лишається людський вигляд.
   function truckAgg(num) {
-    if (!trucks[num]) {
-      trucks[num] = { truck: num, group: '', shifts: 0, km: 0, liters: 0,
+    const key = plateKey(num);
+    if (!key) return null;
+    if (!trucks[key]) {
+      trucks[key] = { key, truck: String(num).trim(), group: '', shifts: 0, km: 0, liters: 0,
                       last: null, lastShift: null, drivers: new Set() };
     }
-    return trucks[num];
+    return trucks[key];
   }
 
   // 1. Картки водіїв — сюди потрапляють навіть ті, хто ще жодної зміни не робив
@@ -1353,7 +1498,10 @@ function buildFleet() {
     a.messenger = d.messenger || '';
     a.truck = d.truck || '';
     a.group = d.group_type || '';
-    if (d.truck) truckAgg(d.truck).group = d.group_type || '';
+    if (d.truck) {
+      const t = truckAgg(d.truck);
+      if (t) t.group = d.group_type || '';
+    }
   });
 
   // 2. Зміни: пробіг, кількість, остання активність
@@ -1373,11 +1521,14 @@ function buildFleet() {
     }
     if (sh.truck) {
       const t = truckAgg(sh.truck);
-      t.shifts++; t.km += km;
-      if (sh.driver_name) t.drivers.add(sh.driver_name);
-      if (!t.last || at > t.last) {
-        t.last = at; t.lastShift = sh;
-        t.group = sh.group_type || t.group;
+      if (t) {
+        t.shifts++; t.km += km;
+        if (sh.driver_name) t.drivers.add(sh.driver_name);
+        if (!t.last || at > t.last) {
+          t.last = at; t.lastShift = sh;
+          t.group = sh.group_type || t.group;
+          t.truck = String(sh.truck).trim();   // показуємо найсвіжіший запис номера
+        }
       }
     }
   });
@@ -1385,26 +1536,30 @@ function buildFleet() {
   // 3. Паливо за поточний місяць прив'язуємо до авто через зміну:
   //    у таблиці fuels номера авто немає, є тільки shift_id.
   const truckByShift = {};
-  allData.forEach(sh => { truckByShift[sh.id] = sh.truck; });
+  allData.forEach(sh => { truckByShift[sh.id] = plateKey(sh.truck); });
   monthFuels.forEach(f => {
-    const num = truckByShift[f.shift_id];
-    if (num && trucks[num]) trucks[num].liters += Number(f.liters) || 0;
+    const key = truckByShift[f.shift_id];
+    if (key && trucks[key]) trucks[key].liters += Number(f.liters) || 0;
   });
 
-  // 4. Причепи
+  // 4. Причепи — так само зводимо різні написання одного номера в один рядок
   allTrailers.forEach(t => {
-    const num = t.trailer_number;
-    if (!num) return;
-    if (!trailers[num]) {
-      trailers[num] = { number: num, cycles: 0, photos: 0, active: null, last: null, lastRow: null };
+    const key = plateKey(t.trailer_number);
+    if (!key) return;
+    if (!trailers[key]) {
+      trailers[key] = { key, number: String(t.trailer_number).trim(),
+                        cycles: 0, photos: 0, active: null, last: null, lastRow: null };
     }
-    const a = trailers[num];
+    const a = trailers[key];
     a.cycles++;
     a.photos += [t.taken_front, t.taken_back, t.taken_left, t.taken_right,
                  t.released_front, t.released_back, t.released_left, t.released_right]
                  .filter(Boolean).length;
     const at = new Date(t.taken_at).getTime();
-    if (!a.last || at > a.last) { a.last = at; a.lastRow = t; }
+    if (!a.last || at > a.last) {
+      a.last = at; a.lastRow = t;
+      a.number = String(t.trailer_number).trim();   // найсвіжіше написання номера
+    }
     if (!t.released_at) a.active = t;
   });
 
@@ -1463,7 +1618,7 @@ function renderAuta() {
 
   let rows = Object.values(buildFleet().trucks);
   if (g) rows = rows.filter(r => r.group === g);
-  rows = rows.filter(r => fleetSearchHit(q, [r.truck, ...r.drivers]));
+  rows = rows.filter(r => fleetSearchHit(q, [r.truck, r.key, ...r.drivers]));
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.truck.localeCompare(b.truck));
 
   document.getElementById('a-count').textContent = 'Aut: ' + rows.length;
@@ -1507,7 +1662,7 @@ function renderNaczepy() {
   if (st === 'free') rows = rows.filter(r => !r.active);
   rows = rows.filter(r => {
     const t = r.lastRow || {};
-    return fleetSearchHit(q, [r.number, t.driver_name, t.truck,
+    return fleetSearchHit(q, [r.number, r.key, t.driver_name, t.truck,
       t.taken_city, t.taken_place, t.released_city, t.released_place]);
   });
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.number.localeCompare(b.number));
