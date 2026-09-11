@@ -148,6 +148,22 @@
   .m-meta { padding: 8px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
   .m-meta b { color: var(--text); display: block; word-break: break-all; }
 
+  /* ---- вкладки Kierowcy / Auta / Naczepy ---- */
+  .status-loading { color: #79C0FF; font-weight: bold; }
+  .fleet-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .fleet-bar input[type="text"] { min-width: 220px; }
+  .fleet-count { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .cell-sub { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+  .link { color: #58A6FF; text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+  .dash { color: var(--muted); }
+  .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; white-space: nowrap; }
+  .pill-busy { background: var(--red-dim); color: var(--red); }
+  .pill-free { background: #16233A; color: #79C0FF; }
+  .pill-idle { background: #1E1E1E; color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+  .hint-box { color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 14px; }
+
   /* На вузькому екрані бічне меню лягає горизонтально зверху */
   @media (max-width: 900px) {
     .shell { flex-direction: column; }
@@ -176,6 +192,18 @@
     <button class="nav-item active" id="nav-drivers" onclick="setView('drivers')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
       Dashboard
+    </button>
+    <button class="nav-item" id="nav-kierowcy" onclick="setView('kierowcy')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M17 11h4M17 15h4"/></svg>
+      Kierowcy
+    </button>
+    <button class="nav-item" id="nav-auta" onclick="setView('auta')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16V7h11v9"/><path d="M13 10h4l4 3.5V16"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>
+      Auta
+    </button>
+    <button class="nav-item" id="nav-naczepy" onclick="setView('naczepy')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="16" height="10" rx="1"/><path d="M18 16h4"/><circle cx="8" cy="18" r="1.6"/><circle cx="13" cy="18" r="1.6"/></svg>
+      Naczepy
     </button>
     <button class="nav-item" id="nav-media" onclick="setView('media')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
@@ -268,6 +296,109 @@
 
 </div><!-- /view-drivers -->
 
+<!-- Вкладка Kierowcy. Увага: id "drivers" зайняте головним дашбордом,
+     тому список водіїв живе під іменем "kierowcy". -->
+<div id="view-kierowcy" hidden>
+  <div class="fleet-bar">
+    <input type="text" id="k-search" placeholder="Szukaj kierowcy, auta, telefonu..." oninput="renderKierowcy()">
+    <select id="k-group" onchange="renderKierowcy()">
+      <option value="">Wszystkie grupy</option>
+      <option value="DHL">BDF</option>
+      <option value="Ogólna">Ogólna</option>
+    </select>
+    <span class="fleet-count" id="k-count">—</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Kierowca</th>
+          <th>Telefon</th>
+          <th>WhatsApp / Telegram</th>
+          <th>Auto</th>
+          <th>Grupa</th>
+          <th>Status</th>
+          <th>Ostatnia zmiana</th>
+          <th>Zmian</th>
+          <th>Km razem</th>
+        </tr>
+      </thead>
+      <tbody id="k-body"><tr><td colspan="9" class="loading">Ładowanie...</td></tr></tbody>
+    </table>
+  </div>
+  <div class="hint-box">
+    Kontakt wpisuje sam kierowca w aplikacji: zakładka <b>Profil</b> → <b>Kontakt</b>.<br>
+    Lista buduje się z tego, co przeszło przez aplikację — kto się logował i kto jeździł.
+  </div>
+</div>
+
+<div id="view-auta" hidden>
+  <div class="fleet-bar">
+    <input type="text" id="a-search" placeholder="Szukaj auta albo kierowcy..." oninput="renderAuta()">
+    <select id="a-group" onchange="renderAuta()">
+      <option value="">Wszystkie grupy</option>
+      <option value="DHL">BDF</option>
+      <option value="Ogólna">Ogólna</option>
+    </select>
+    <span class="fleet-count" id="a-count">—</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Auto</th>
+          <th>Status</th>
+          <th>Kierowca</th>
+          <th>Naczepa</th>
+          <th>Grupa</th>
+          <th>Ostatnia zmiana</th>
+          <th>Zmian</th>
+          <th>Km razem</th>
+          <th>Paliwo (ten miesiąc)</th>
+        </tr>
+      </thead>
+      <tbody id="a-body"><tr><td colspan="9" class="loading">Ładowanie...</td></tr></tbody>
+    </table>
+  </div>
+  <div class="hint-box">
+    Na razie są tu tylko auta, które kierowcy wpisali przy logowaniu.
+    Pełną flotę wgramy później, gdy będzie lista numerów.
+  </div>
+</div>
+
+<div id="view-naczepy" hidden>
+  <div class="fleet-bar">
+    <input type="text" id="n-search" placeholder="Szukaj naczepy, kierowcy, miejsca..." oninput="renderNaczepy()">
+    <select id="n-status" onchange="renderNaczepy()">
+      <option value="">Wszystkie</option>
+      <option value="busy">Podpięte</option>
+      <option value="free">Wolne</option>
+    </select>
+    <span class="fleet-count" id="n-count">—</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Naczepa</th>
+          <th>Status</th>
+          <th>Kierowca</th>
+          <th>Auto</th>
+          <th>Ostatnie miejsce</th>
+          <th>Od / ostatnio</th>
+          <th>Cykli</th>
+          <th>Zdjęć</th>
+        </tr>
+      </thead>
+      <tbody id="n-body"><tr><td colspan="8" class="loading">Ładowanie...</td></tr></tbody>
+    </table>
+  </div>
+  <div class="hint-box">
+    Współrzędne i adres podpięcia oraz oddania naczepy są na głównym dashboardzie —
+    kliknij wiersz kierowcy, rozwinie się lista zdarzeń zmiany.
+  </div>
+</div>
+
 <div id="view-media" hidden>
   <div class="filters">
     <select id="m-driver" onchange="renderMedia()">
@@ -325,6 +456,8 @@ let mediaObjects = null;   // null = zakładka Media jeszcze nie wczytana
 let mediaLoading = false;
 let activeTrailers = {};   // driver_name -> причіп, який зараз закріплений
 let openShiftId = null;    // яка зміна розгорнута в стрічку подій
+let driverCards = {};      // name -> рядок з таблиці drivers (контакти водія)
+let allTrailers = [];      // уся історія причепів — під вкладку Naczepy
 
 // Екранування тексту, який вводить водій (номер причепа, uwagi, adres).
 function esc(v) {
@@ -356,7 +489,7 @@ async function loadData() {
 
   const { data: fuelData } = await db
     .from('fuels')
-    .select('liters, created_at')
+    .select('shift_id, liters, km, created_at')
     .gte('created_at', monthStart().toISOString());
   monthFuels = fuelData || [];
 
@@ -375,7 +508,28 @@ async function loadData() {
     (trData || []).forEach(t => { activeTrailers[t.driver_name] = t; });
   }
 
+  // Картки водіїв: ім'я, авто, група + телефон/месенджер, який водій
+  // вписав у профілі застосунку. Таблиця довідкова — якщо її нема,
+  // вкладки просто побудуються з самих змін.
+  const { data: drvData, error: drvError } = await db
+    .from('drivers')
+    .select('name, truck, group_type, phone, messenger');
+
+  driverCards = {};
+  if (drvError) console.warn('drivers niedostępne:', drvError.message);
+  else (drvData || []).forEach(d => { driverCards[d.name] = d; });
+
+  // Уся історія причепів під вкладку Naczepy. Активні причепи лишаємо
+  // окремим запитом вище — той завжди свіжий і не залежить від ліміту.
+  const { data: trAll, error: trAllError } = await db
+    .from('trailers_log')
+    .select('driver_name, truck, trailer_number, taken_at, taken_city, taken_place, taken_front, taken_back, taken_left, taken_right, released_at, released_city, released_place, released_front, released_back, released_left, released_right')
+    .order('taken_at', { ascending: false })
+    .limit(500);
+  allTrailers = trAllError ? [] : (trAll || []);
+
   renderTable();
+  renderFleet();
   if (mediaObjects !== null) buildMediaDriverOptions();
   document.getElementById('footer').textContent =
     'Ostatnia aktualizacja: ' + new Date().toLocaleTimeString('pl-PL') + ' · Auto-odświeżanie co 30s';
@@ -502,7 +656,6 @@ function renderTable() {
     const endTime = s.end_time
       ? new Date(s.end_time).toLocaleTimeString('pl-PL', opts)
       : '—';
-    const badgeCls = s.group_type === 'DHL' ? 'badge-dhl' : 'badge-ogolna';
     const shortPauses = calcPauseUsage(s.driver_name);
     const pauseCls = shortPauses > 3 ? 'style="color:#d32f2f;font-weight:bold"' : '';
 
@@ -517,7 +670,7 @@ function renderTable() {
       <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>${esc(s.driver_name)}</div></td>
       <td>${esc(s.truck)}</td>
       <td>${trailerCell(s)}</td>
-      <td><span class="badge ${badgeCls}">${s.group_type}</span></td>
+      <td>${groupBadge(s.group_type)}</td>
       <td class="${status.cls}">${status.text}</td>
       <td>${startTime}</td>
       <td>${endTime}</td>
@@ -1127,20 +1280,291 @@ async function generateFuelPDF(name, range) {
   openPrintWindow(html);
 }
 
+/* ===================== FLOTA: Kierowcy / Auta / Naczepy =====================
+   Довідників машин і причепів у базі поки немає, тому списки збираються
+   з того, що реально пройшло через застосунок: зміни (shifts), картки
+   водіїв (drivers) і історія причепів (trailers_log). Коли з'явиться
+   повна база флоти, сюди достатньо буде підмішати ще одне джерело.
+   ========================================================================= */
+
+function fmtDay(v) {
+  return v ? new Date(v).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+}
+
+function fmtDayTime(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('pl-PL', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// У базі група BDF досі записана як 'DHL' — стара назва. Показуємо нову.
+function groupBadge(g) {
+  if (!g) return '<span class="dash">—</span>';
+  const cls = g === 'DHL' ? 'badge-dhl' : 'badge-ogolna';
+  return '<span class="badge ' + cls + '">' + esc(g === 'DHL' ? 'BDF' : g) + '</span>';
+}
+
+function phoneCell(v) {
+  if (!v) return '<span class="dash">—</span>';
+  const tel = String(v).replace(/[^0-9+]/g, '');
+  return `<a class="link" href="tel:${esc(tel)}">${esc(v)}</a>`;
+}
+
+// Якщо водій вписав номер — робимо посилання на WhatsApp.
+// Якщо це нік (Telegram тощо) — просто текст, вгадувати не будемо.
+function messengerCell(v) {
+  if (!v) return '<span class="dash">—</span>';
+  const digits = String(v).replace(/[^0-9]/g, '');
+  if (digits.length >= 9) {
+    return `<a class="link" href="https://wa.me/${digits}" target="_blank" rel="noopener">${esc(v)}</a>`;
+  }
+  return esc(v);
+}
+
+function fleetSearchHit(q, parts) {
+  if (!q) return true;
+  return parts.filter(Boolean).join(' ').toLowerCase().includes(q);
+}
+
+/** Зводить зміни, картки водіїв і причепи в три списки для вкладок. */
+function buildFleet() {
+  const drivers = {}, trucks = {}, trailers = {};
+
+  function driverAgg(name) {
+    if (!drivers[name]) {
+      drivers[name] = { name, group: '', truck: '', phone: '', messenger: '',
+                        shifts: 0, km: 0, last: null, lastShift: null };
+    }
+    return drivers[name];
+  }
+  function truckAgg(num) {
+    if (!trucks[num]) {
+      trucks[num] = { truck: num, group: '', shifts: 0, km: 0, liters: 0,
+                      last: null, lastShift: null, drivers: new Set() };
+    }
+    return trucks[num];
+  }
+
+  // 1. Картки водіїв — сюди потрапляють навіть ті, хто ще жодної зміни не робив
+  Object.values(driverCards).forEach(d => {
+    const a = driverAgg(d.name);
+    a.phone = d.phone || '';
+    a.messenger = d.messenger || '';
+    a.truck = d.truck || '';
+    a.group = d.group_type || '';
+    if (d.truck) truckAgg(d.truck).group = d.group_type || '';
+  });
+
+  // 2. Зміни: пробіг, кількість, остання активність
+  allData.forEach(sh => {
+    const at = new Date(sh.start_time || sh.created_at).getTime();
+    const km = (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km)
+      ? sh.end_km - sh.start_km : 0;
+
+    if (sh.driver_name) {
+      const a = driverAgg(sh.driver_name);
+      a.shifts++; a.km += km;
+      if (!a.last || at > a.last) {
+        a.last = at; a.lastShift = sh;
+        a.truck = sh.truck || a.truck;
+        a.group = sh.group_type || a.group;
+      }
+    }
+    if (sh.truck) {
+      const t = truckAgg(sh.truck);
+      t.shifts++; t.km += km;
+      if (sh.driver_name) t.drivers.add(sh.driver_name);
+      if (!t.last || at > t.last) {
+        t.last = at; t.lastShift = sh;
+        t.group = sh.group_type || t.group;
+      }
+    }
+  });
+
+  // 3. Паливо за поточний місяць прив'язуємо до авто через зміну:
+  //    у таблиці fuels номера авто немає, є тільки shift_id.
+  const truckByShift = {};
+  allData.forEach(sh => { truckByShift[sh.id] = sh.truck; });
+  monthFuels.forEach(f => {
+    const num = truckByShift[f.shift_id];
+    if (num && trucks[num]) trucks[num].liters += Number(f.liters) || 0;
+  });
+
+  // 4. Причепи
+  allTrailers.forEach(t => {
+    const num = t.trailer_number;
+    if (!num) return;
+    if (!trailers[num]) {
+      trailers[num] = { number: num, cycles: 0, photos: 0, active: null, last: null, lastRow: null };
+    }
+    const a = trailers[num];
+    a.cycles++;
+    a.photos += [t.taken_front, t.taken_back, t.taken_left, t.taken_right,
+                 t.released_front, t.released_back, t.released_left, t.released_right]
+                 .filter(Boolean).length;
+    const at = new Date(t.taken_at).getTime();
+    if (!a.last || at > a.last) { a.last = at; a.lastRow = t; }
+    if (!t.released_at) a.active = t;
+  });
+
+  return { drivers, trucks, trailers };
+}
+
+/** Перемальовує всі три вкладки одразу — вони дешеві й завжди в DOM. */
+function renderFleet() {
+  renderKierowcy();
+  renderAuta();
+  renderNaczepy();
+}
+
+function renderKierowcy() {
+  const body = document.getElementById('k-body');
+  if (!body) return;
+  const q = (document.getElementById('k-search').value || '').trim().toLowerCase();
+  const g = document.getElementById('k-group').value;
+
+  let rows = Object.values(buildFleet().drivers);
+  if (g) rows = rows.filter(r => r.group === g);
+  rows = rows.filter(r => fleetSearchHit(q, [r.name, r.truck, r.phone, r.messenger]));
+  rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.name.localeCompare(b.name));
+
+  document.getElementById('k-count').textContent = 'Kierowców: ' + rows.length;
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="9" class="loading">Nikogo tu jeszcze nie ma.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(r => {
+    const st = r.lastShift ? getStatus(r.lastShift) : null;
+    const stCell = st
+      ? `<span class="${st.cls}">${st.text}</span>`
+      : '<span class="pill pill-idle">Bez zmiany</span>';
+    return `<tr>
+      <td><div class="who"><div class="ava">${initials(r.name)}</div>${esc(r.name)}</div></td>
+      <td>${phoneCell(r.phone)}</td>
+      <td>${messengerCell(r.messenger)}</td>
+      <td>${esc(r.truck) || '<span class="dash">—</span>'}</td>
+      <td>${groupBadge(r.group)}</td>
+      <td>${stCell}</td>
+      <td class="num">${fmtDay(r.last)}</td>
+      <td class="num">${r.shifts}</td>
+      <td class="num">${r.km ? r.km + ' km' : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAuta() {
+  const body = document.getElementById('a-body');
+  if (!body) return;
+  const q = (document.getElementById('a-search').value || '').trim().toLowerCase();
+  const g = document.getElementById('a-group').value;
+
+  let rows = Object.values(buildFleet().trucks);
+  if (g) rows = rows.filter(r => r.group === g);
+  rows = rows.filter(r => fleetSearchHit(q, [r.truck, ...r.drivers]));
+  rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.truck.localeCompare(b.truck));
+
+  document.getElementById('a-count').textContent = 'Aut: ' + rows.length;
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="9" class="loading">Żadne auto nie przeszło jeszcze przez aplikację.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(r => {
+    const sh = r.lastShift;
+    const inRoute = !!sh && sh.status === 'active';
+    const driver = sh ? sh.driver_name : [...r.drivers][0];
+    const trailer = driver && activeTrailers[driver] ? activeTrailers[driver].trailer_number : null;
+    const others = r.drivers.size > 1 ? `<span class="cell-sub">i jeszcze ${r.drivers.size - 1}</span>` : '';
+
+    return `<tr>
+      <td><b>${esc(r.truck)}</b></td>
+      <td>${inRoute
+        ? '<span class="pill pill-busy">W trasie</span>'
+        : '<span class="pill pill-free">Wolne</span>'}</td>
+      <td>${driver ? esc(driver) + others : '<span class="dash">—</span>'}</td>
+      <td>${trailer ? `<span class="trailer-num">${esc(trailer)}</span>` : '<span class="dash">—</span>'}</td>
+      <td>${groupBadge(r.group)}</td>
+      <td class="num">${fmtDay(r.last)}</td>
+      <td class="num">${r.shifts}</td>
+      <td class="num">${r.km ? r.km + ' km' : '—'}</td>
+      <td class="num">${r.liters ? r.liters.toFixed(0) + ' L' : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderNaczepy() {
+  const body = document.getElementById('n-body');
+  if (!body) return;
+  const q = (document.getElementById('n-search').value || '').trim().toLowerCase();
+  const st = document.getElementById('n-status').value;
+
+  let rows = Object.values(buildFleet().trailers);
+  if (st === 'busy') rows = rows.filter(r => r.active);
+  if (st === 'free') rows = rows.filter(r => !r.active);
+  rows = rows.filter(r => {
+    const t = r.lastRow || {};
+    return fleetSearchHit(q, [r.number, t.driver_name, t.truck,
+      t.taken_city, t.taken_place, t.released_city, t.released_place]);
+  });
+  rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.number.localeCompare(b.number));
+
+  document.getElementById('n-count').textContent = 'Naczep: ' + rows.length;
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="8" class="loading">Żadna naczepa nie przeszła jeszcze przez aplikację.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(r => {
+    const t = r.lastRow || {};
+    // Причіп закріплений — показуємо місце підчеплення.
+    // Здано — місце, де водій його лишив.
+    const place = r.active
+      ? shortPlace(t.taken_city, t.taken_place)
+      : shortPlace(t.released_city, t.released_place);
+    const when = r.active ? t.taken_at : (t.released_at || t.taken_at);
+    const whenLabel = r.active ? 'od ' : '';
+
+    return `<tr>
+      <td><span class="trailer-num">${esc(r.number)}</span></td>
+      <td>${r.active
+        ? '<span class="pill pill-busy">Podpięta</span>'
+        : '<span class="pill pill-free">Wolna</span>'}</td>
+      <td>${esc(t.driver_name) || '<span class="dash">—</span>'}</td>
+      <td>${esc(t.truck) || '<span class="dash">—</span>'}</td>
+      <td>${place && place !== '—' ? '📍 ' + esc(place) : '<span class="dash">—</span>'}</td>
+      <td class="num">${whenLabel}${fmtDayTime(when)}</td>
+      <td class="num">${r.cycles}</td>
+      <td class="num">${r.photos || 0}</td>
+    </tr>`;
+  }).join('');
+}
+
 /* ===================== MEDIA (zdjęcia CMR) ===================== */
 
 const MEDIA_BUCKET = 'cmr-photos';
 
-const VIEW_TITLES = { drivers: 'Dashboard', media: 'Dokumenty', reports: 'Raporty' };
+const VIEW_TITLES = {
+  drivers: 'Dashboard', kierowcy: 'Kierowcy', auta: 'Auta',
+  naczepy: 'Naczepy', media: 'Dokumenty', reports: 'Raporty',
+};
+const VIEWS = ['drivers', 'kierowcy', 'auta', 'naczepy', 'media', 'reports'];
 
 function setView(v) {
-  ['drivers', 'media', 'reports'].forEach(name => {
+  VIEWS.forEach(name => {
     document.getElementById('view-' + name).hidden = (name !== v);
     document.getElementById('nav-' + name).classList.toggle('active', name === v);
   });
   document.getElementById('page-title').textContent = VIEW_TITLES[v] || 'Dashboard';
 
   if (v === 'media' && mediaObjects === null) loadMedia();
+  // Списки флоти будуються з уже завантажених даних — перемальовуємо,
+  // щоб вкладка не показувала "Ładowanie", якщо її відкрили вперше.
+  if (v === 'kierowcy' || v === 'auta' || v === 'naczepy') renderFleet();
   // Розділ звітів: підтягуємо список водіїв і ставимо поточний місяць
   if (v === 'reports') {
     fillReportDrivers();
