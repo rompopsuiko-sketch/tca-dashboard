@@ -111,6 +111,31 @@
   .trailer-solo { color: var(--muted); }
   .trailer-nophoto { color: var(--yellow); font-size: 11px; display: block; }
   tbody tr.row-main { cursor: pointer; }
+  /* Свіжа активність водія: червона смуга зліва + чип із назвою дії.
+     Гасне, щойно диспетчер розгорне рядок і подивиться стрічку. */
+  tbody tr.row-new td { background: var(--red-dim); }
+  tbody tr.row-new td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  .act-chip {
+    margin-left: 8px; padding: 2px 8px; border-radius: 10px;
+    background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+    letter-spacing: .3px; white-space: nowrap;
+    animation: actpulse 1.8s ease-in-out infinite;
+  }
+  @keyframes actpulse { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
+  .btn-new { background: var(--red); color: #fff; border-color: var(--red); }
+
+  /* Контакти водія: телефон і месенджер мають відрізнятись з першого погляду */
+  .contact {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; text-decoration: none;
+    border: 1px solid var(--border); color: var(--text);
+  }
+  .contact:hover { filter: brightness(1.25); }
+  .c-tel { background: var(--card-alt); }
+  .c-wa  { background: #0B2E13; color: #25D366; border-color: #1D5C2B; }
+  .c-tg  { background: #0C2438; color: #2AABEE; border-color: #1A4B70; }
+  .contact svg { display: block; }
   .chev { color: var(--muted); font-size: 10px; display: inline-block; transition: transform .15s; }
   tr.open .chev { transform: rotate(90deg); color: var(--red); }
   tr.detail > td { background: var(--panel); padding: 0; }
@@ -150,6 +175,58 @@
 
   /* ---- вкладки Kierowcy / Auta / Naczepy ---- */
   .status-loading { color: #79C0FF; font-weight: bold; }
+  /* ---- групи машин, які диспетчер робить сам ---- */
+  .group-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .group-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 14px; border-radius: 20px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); font-size: 13px; font-weight: 600;
+  }
+  .group-chip:hover { color: var(--text); border-color: #3a3a3a; }
+  .group-chip.on { color: var(--text); border-color: var(--red); background: var(--red-dim); }
+  .group-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .group-chip .cnt { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+  .group-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; margin-bottom: 12px;
+  }
+  .group-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .group-card-name { font-size: 16px; font-weight: 700; }
+  .group-card-top .btn { padding: 5px 12px; font-size: 13px; }
+  .group-card-top .spacer { margin-left: auto; }
+  .truck-tag {
+    display: inline-block; margin: 0 6px 6px 0; padding: 3px 10px;
+    border-radius: 8px; background: var(--card-alt);
+    font-size: 12px; font-family: ui-monospace, monospace;
+  }
+
+  .modal-back {
+    position: fixed; inset: 0; background: rgba(0,0,0,.8);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+  }
+  .modal-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 560px; max-width: 100%; max-height: 88vh; overflow: auto;
+  }
+  .modal-box h3 { margin: 0 0 14px; }
+  .modal-box label { display: block; color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+  .swatch.on { border-color: var(--text); }
+  .truck-pick {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px; max-height: 260px; overflow: auto;
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+  }
+  .truck-pick label {
+    display: flex; align-items: center; gap: 8px; margin: 0;
+    color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .modal-actions .spacer { margin-left: auto; }
+
   .fleet-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
   .fleet-bar input[type="text"] { min-width: 220px; }
   .fleet-count { color: var(--muted); font-size: 13px; margin-left: auto; }
@@ -205,6 +282,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="16" height="10" rx="1"/><path d="M18 16h4"/><circle cx="8" cy="18" r="1.6"/><circle cx="13" cy="18" r="1.6"/></svg>
       Naczepy
     </button>
+    <button class="nav-item" id="nav-grupy" onclick="setView('grupy')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="8" height="6" rx="1.5"/><rect x="13" y="4" width="8" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="13" y="14" width="8" height="6" rx="1.5"/></svg>
+      Grupy
+    </button>
     <button class="nav-item" id="nav-media" onclick="setView('media')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
       Dokumenty
@@ -222,7 +303,13 @@
 <div class="topbar">
   <h1 id="page-title">Dashboard</h1>
   <button class="btn btn-refresh" onclick="loadData()">🔄 Odśwież</button>
+  <button class="btn btn-new" id="new-badge" hidden onclick="markAllSeen()">⚡ Nowe: 0</button>
 </div>
+
+<!-- Фільтр по групах машин. Діє одразу на всі списки: Dashboard,
+     Kierowcy, Auta, Naczepy — щоб диспетчер один раз вибрав напрямок
+     і далі дивився тільки на нього. -->
+<div class="group-bar" id="group-bar" hidden></div>
 
 <div id="view-drivers">
 
@@ -399,6 +486,14 @@
   </div>
 </div>
 
+<div id="view-grupy" hidden>
+  <div class="fleet-bar">
+    <button class="btn btn-primary" onclick="openGroupModal()">➕ Nowa grupa</button>
+    <span class="fleet-count" id="g-count">—</span>
+  </div>
+  <div id="groups-list"><div class="loading">Ładowanie…</div></div>
+</div>
+
 <div id="view-media" hidden>
   <div class="filters">
     <select id="m-driver" onchange="renderMedia()">
@@ -456,6 +551,11 @@ let mediaObjects = null;   // null = zakładka Media jeszcze nie wczytana
 let mediaLoading = false;
 let activeTrailers = {};   // driver_name -> причіп, який зараз закріплений
 let openShiftId = null;    // яка зміна розгорнута в стрічку подій
+let lastActivity = {};     // driver_name -> { at, what } — остання дія водія
+let seenActivity = loadSeen();  // що диспетчер уже переглянув
+const ACTIVITY_WINDOW_H = 48;   // глибина, на яку взагалі дивимось активність
+let fleetGroups = [];      // групи машин, які диспетчер зібрав сам
+let activeGroupId = localStorage.getItem('tca_group_filter') || '';  // вибраний фільтр
 let driverCards = {};      // name -> рядок з таблиці drivers (контакти водія)
 let allTrailers = [];      // уся історія причепів — під вкладку Naczepy
 
@@ -511,9 +611,11 @@ async function loadData() {
   // Картки водіїв: ім'я, авто, група + телефон/месенджер, який водій
   // вписав у профілі застосунку. Таблиця довідкова — якщо її нема,
   // вкладки просто побудуються з самих змін.
+  // select('*'), а не перелік колонок: коли в drivers додається нова
+  // колонка (messenger_type), перелік почав би падати до запуску SQL.
   const { data: drvData, error: drvError } = await db
     .from('drivers')
-    .select('name, truck, group_type, phone, messenger');
+    .select('*');
 
   driverCards = {};
   if (drvError) console.warn('drivers niedostępne:', drvError.message);
@@ -528,11 +630,369 @@ async function loadData() {
     .limit(500);
   allTrailers = trAllError ? [] : (trAll || []);
 
+  // Групи машин, які диспетчер зібрав сам — фільтр діє на всі списки
+  await loadFleetGroups();
+  renderGroupBar();
+
+  // Активність водіїв за останню добу-дві: події, заправки, CMR.
+  // Зміни й причепи вже завантажені вище. Якщо якоїсь таблиці нема,
+  // повернеться порожньо — підсвітка просто врахує менше джерел.
+  const actSince = new Date(Date.now() - ACTIVITY_WINDOW_H * 3600 * 1000).toISOString();
+  const [evRes, fuRes, cmrRes] = await Promise.all([
+    db.from('events').select('driver_name, event_type, started_at, ended_at').gte('started_at', actSince),
+    db.from('fuels').select('driver_name, liters, created_at').gte('created_at', actSince),
+    db.from('cmr').select('driver_name, created_at').gte('created_at', actSince),
+  ]);
+  buildActivity(evRes.data, fuRes.data, cmrRes.data);
+
   renderTable();
   renderFleet();
   if (mediaObjects !== null) buildMediaDriverOptions();
   document.getElementById('footer').textContent =
     'Ostatnia aktualizacja: ' + new Date().toLocaleTimeString('pl-PL') + ' · Auto-odświeżanie co 30s';
+}
+
+/* ---------------------------------------------------------------------
+   Групи машин. Логін водія дає тільки BDF / Ogólna, а всередині Ogólnej
+   є різні напрямки — лінійні машини, узбережжя тощо. Тут диспетчер
+   збирає такі групи сам і фільтрує по них усі списки.
+
+   Групи спільні для всіх: лежать у таблиці fleet_groups, без логіну.
+   Особистим лишається тільки вибраний фільтр — він у localStorage,
+   тому двоє диспетчерів не перебивають вибір один одному.
+   --------------------------------------------------------------------- */
+
+const GROUP_COLORS = ['#E01E26', '#3FB950', '#58A6FF', '#E3B341', '#BC8CFF', '#FF8A65'];
+
+async function loadFleetGroups() {
+  const { data, error } = await db.from('fleet_groups').select('*').order('name');
+  if (error) {
+    // Таблиці ще нема (не запущено grupy.sql) — просто працюємо без груп
+    console.warn('fleet_groups niedostępne:', error.message);
+    fleetGroups = [];
+  } else {
+    fleetGroups = data || [];
+  }
+  // Групу могли видалити з іншого браузера — тоді знімаємо фільтр
+  if (activeGroupId && !fleetGroups.some(g => g.id === activeGroupId)) {
+    activeGroupId = '';
+    localStorage.setItem('tca_group_filter', '');
+  }
+}
+
+function activeGroup() {
+  return fleetGroups.find(g => g.id === activeGroupId) || null;
+}
+
+/** Чи проходить авто крізь вибраний фільтр. Без фільтра — проходить усе. */
+function passesGroup(truck) {
+  const g = activeGroup();
+  if (!g) return true;
+  const key = plateKey(truck);
+  return !!key && (g.trucks || []).includes(key);
+}
+
+function setGroupFilter(id) {
+  activeGroupId = id || '';
+  localStorage.setItem('tca_group_filter', activeGroupId);
+  renderGroupBar();
+  renderTable();
+  renderFleet();
+}
+
+function renderGroupBar() {
+  const bar = document.getElementById('group-bar');
+  if (!bar) return;
+  if (!fleetGroups.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+
+  bar.hidden = false;
+  const chips = fleetGroups.map(g => `
+    <button class="group-chip ${g.id === activeGroupId ? 'on' : ''}" onclick="setGroupFilter('${g.id}')">
+      <span class="group-dot" style="background:${esc(g.color || '#8A8A8A')}"></span>
+      ${esc(g.name)} <span class="cnt">${(g.trucks || []).length}</span>
+    </button>`).join('');
+
+  bar.innerHTML = `
+    <button class="group-chip ${activeGroupId ? '' : 'on'}" onclick="setGroupFilter('')">Wszystkie</button>
+    ${chips}`;
+}
+
+function renderGroups() {
+  const box = document.getElementById('groups-list');
+  if (!box) return;
+
+  // Скільки машин іще ніде не записані — щоб нова машина не загубилась
+  const allTrucks = Object.values(buildFleet().trucks);
+  const inGroups = new Set();
+  fleetGroups.forEach(g => (g.trucks || []).forEach(t => inGroups.add(t)));
+  const orphans = allTrucks.filter(t => !inGroups.has(t.key));
+
+  document.getElementById('g-count').textContent =
+    `Grup: ${fleetGroups.length} · poza grupami: ${orphans.length}`;
+
+  if (!fleetGroups.length) {
+    box.innerHTML = `<div class="loading">
+      Nie ma jeszcze żadnej grupy. Kliknij „Nowa grupa”, zaznacz auta i nadaj nazwę —
+      np. „Linie” albo „Wybrzeże”.
+    </div>`;
+    return;
+  }
+
+  // Номер показуємо в тому вигляді, в якому він приходить зі змін
+  const label = {};
+  allTrucks.forEach(t => { label[t.key] = t.truck; });
+
+  box.innerHTML = fleetGroups.map(g => {
+    const trucks = (g.trucks || []);
+    const tags = trucks.length
+      ? trucks.map(k => `<span class="truck-tag">${esc(label[k] || k)}</span>`).join('')
+      : '<span class="dash">Brak aut w tej grupie</span>';
+    return `<div class="group-card">
+      <div class="group-card-top">
+        <span class="group-dot" style="background:${esc(g.color || '#8A8A8A')}"></span>
+        <span class="group-card-name">${esc(g.name)}</span>
+        <span class="cnt" style="color:var(--muted)">${trucks.length} aut</span>
+        <span class="spacer"></span>
+        <button class="btn" onclick="openGroupModal('${g.id}')">Edytuj</button>
+        <button class="btn" onclick="deleteGroup('${g.id}')">Usuń</button>
+      </div>
+      <div>${tags}</div>
+    </div>`;
+  }).join('');
+
+  if (orphans.length) {
+    box.innerHTML += `<div class="group-card" style="border-style:dashed">
+      <div class="group-card-top">
+        <span class="group-card-name" style="color:var(--muted)">Poza grupami</span>
+        <span class="cnt" style="color:var(--muted)">${orphans.length} aut</span>
+      </div>
+      <div>${orphans.map(t => `<span class="truck-tag">${esc(t.truck)}</span>`).join('')}</div>
+    </div>`;
+  }
+}
+
+/* ---- конструктор групи ---- */
+
+let editingGroupId = null;
+
+function openGroupModal(id) {
+  editingGroupId = id || null;
+  const g = id ? fleetGroups.find(x => x.id === id) : null;
+  const chosen = new Set(g ? (g.trucks || []) : []);
+  const color = (g && g.color) || GROUP_COLORS[fleetGroups.length % GROUP_COLORS.length];
+
+  // Список авто — з того, що вже пройшло через застосунок
+  const trucks = Object.values(buildFleet().trucks)
+    .sort((a, b) => a.truck.localeCompare(b.truck));
+
+  const boxes = trucks.map(t => `
+    <label><input type="checkbox" value="${esc(t.key)}" ${chosen.has(t.key) ? 'checked' : ''}> ${esc(t.truck)}</label>
+  `).join('') || '<span class="dash">Żadne auto nie przeszło jeszcze przez aplikację.</span>';
+
+  const swatches = GROUP_COLORS.map(c => `
+    <span class="swatch ${c === color ? 'on' : ''}" style="background:${c}"
+          onclick="pickColor(this, '${c}')"></span>`).join('');
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'group-modal';
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>${g ? 'Edytuj grupę' : 'Nowa grupa'}</h3>
+
+      <label>Nazwa grupy</label>
+      <input type="text" id="gm-name" placeholder="np. Linie" value="${esc(g ? g.name : '')}">
+
+      <label>Kolor</label>
+      <div class="swatches" id="gm-colors" data-color="${color}">${swatches}</div>
+
+      <label>Auta w grupie <span id="gm-count" style="color:var(--muted)"></span></label>
+      <input type="text" id="gm-search" placeholder="Szukaj numeru..." oninput="filterTruckPick()">
+      <div class="truck-pick" id="gm-trucks" onchange="updatePickCount()">${boxes}</div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeGroupModal()">Anuluj</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="gm-save" onclick="saveGroup()">Zapisz</button>
+      </div>
+    </div>`;
+  back.onclick = closeGroupModal;
+  document.body.appendChild(back);
+  updatePickCount();
+  document.getElementById('gm-name').focus();
+}
+
+function pickColor(el, color) {
+  document.querySelectorAll('#gm-colors .swatch').forEach(s => s.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('gm-colors').dataset.color = color;
+}
+
+function filterTruckPick() {
+  const q = (document.getElementById('gm-search').value || '').trim().toLowerCase();
+  document.querySelectorAll('#gm-trucks label').forEach(l => {
+    l.hidden = !!q && !l.textContent.toLowerCase().includes(q);
+  });
+}
+
+function updatePickCount() {
+  const n = document.querySelectorAll('#gm-trucks input:checked').length;
+  const el = document.getElementById('gm-count');
+  if (el) el.textContent = '— zaznaczono: ' + n;
+}
+
+function closeGroupModal() {
+  const el = document.getElementById('group-modal');
+  if (el) el.remove();
+  editingGroupId = null;
+}
+
+async function saveGroup() {
+  const name = (document.getElementById('gm-name').value || '').trim();
+  if (!name) { alert('Wpisz nazwę grupy.'); return; }
+
+  const color = document.getElementById('gm-colors').dataset.color;
+  const trucks = [...document.querySelectorAll('#gm-trucks input:checked')].map(i => i.value);
+
+  const btn = document.getElementById('gm-save');
+  btn.disabled = true;
+  btn.textContent = 'Zapisywanie…';
+
+  const row = { name, color, trucks, updated_at: new Date().toISOString() };
+  const { error } = editingGroupId
+    ? await db.from('fleet_groups').update(row).eq('id', editingGroupId)
+    : await db.from('fleet_groups').insert(row);
+
+  btn.disabled = false;
+  btn.textContent = 'Zapisz';
+
+  if (error) {
+    alert(/duplicate|unique/i.test(error.message)
+      ? 'Grupa o takiej nazwie już istnieje.'
+      : 'Nie udało się zapisać: ' + error.message);
+    return;
+  }
+
+  closeGroupModal();
+  await refreshGroups();
+}
+
+async function deleteGroup(id) {
+  const g = fleetGroups.find(x => x.id === id);
+  if (!g) return;
+  if (!confirm('Usunąć grupę „' + g.name + '”?\n\nDane zmian i aut zostają bez zmian.')) return;
+
+  const { error } = await db.from('fleet_groups').delete().eq('id', id);
+  if (error) { alert('Nie udało się usunąć: ' + error.message); return; }
+
+  if (activeGroupId === id) {
+    activeGroupId = '';
+    localStorage.setItem('tca_group_filter', '');
+  }
+  await refreshGroups();
+}
+
+/** Після будь-якої правки груп перемальовуємо все, на що вони впливають. */
+async function refreshGroups() {
+  await loadFleetGroups();
+  renderGroupBar();
+  renderGroups();
+  renderTable();
+  renderFleet();
+}
+
+/* ---------------------------------------------------------------------
+   Підсвітка активності. Диспетчер має бачити, що водій щось зробив —
+   стартував, почав załadunek, заправився, здав причіп. Ознака гасне,
+   щойно диспетчер розгорне рядок водія, тобто подивиться стрічку.
+
+   Стан "переглянуто" лежить у localStorage браузера, не в базі:
+   один диспетчер — один браузер. Якщо їх стане двоє, у кожного буде
+   свій стан, і це радше плюс, ніж проблема.
+   --------------------------------------------------------------------- */
+
+function loadSeen() {
+  try { return JSON.parse(localStorage.getItem('tca_seen_activity') || '{}'); }
+  catch (e) { return {}; }
+}
+
+function saveSeen() {
+  try { localStorage.setItem('tca_seen_activity', JSON.stringify(seenActivity)); }
+  catch (e) { /* приватний режим — підсвітка просто не запам'ятається */ }
+}
+
+/**
+ * Збирає останню дію кожного водія з усіх джерел.
+ * Старіше за ACTIVITY_WINDOW_H годин не беремо: після відпустки
+ * диспетчера не має світитись уся таблиця одразу.
+ */
+function buildActivity(events, fuels, cmrs) {
+  lastActivity = {};
+  const since = Date.now() - ACTIVITY_WINDOW_H * 3600 * 1000;
+  const soon = Date.now() + 60000;   // захист від кривого годинника на телефоні
+
+  function bump(driver, at, what) {
+    if (!driver || !at) return;
+    const t = new Date(at).getTime();
+    if (!t || t < since || t > soon) return;
+    const cur = lastActivity[driver];
+    if (!cur || t > new Date(cur.at).getTime()) lastActivity[driver] = { at, what };
+  }
+
+  allData.forEach(s => {
+    bump(s.driver_name, s.start_time || s.created_at, 'Start zmiany');
+    if (s.end_time) bump(s.driver_name, s.end_time, 'Koniec zmiany');
+  });
+  (events || []).forEach(e => {
+    bump(e.driver_name, e.started_at, e.event_type);
+    if (e.ended_at) bump(e.driver_name, e.ended_at, 'Koniec ' + e.event_type);
+  });
+  (fuels || []).forEach(f => {
+    bump(f.driver_name, f.created_at, 'Tankowanie' + (f.liters ? ' ' + f.liters + ' L' : ''));
+  });
+  (cmrs || []).forEach(c => bump(c.driver_name, c.created_at, 'Zdjęcie CMR'));
+  allTrailers.forEach(t => {
+    bump(t.driver_name, t.taken_at, 'Naczepa ' + (t.trailer_number || '') + ' podpięta');
+    if (t.released_at) bump(t.driver_name, t.released_at, 'Naczepa oddana');
+  });
+}
+
+function isNewActivity(driver) {
+  const a = lastActivity[driver];
+  if (!a) return false;
+  const seen = seenActivity[driver];
+  return !seen || new Date(a.at) > new Date(seen);
+}
+
+/** Водія переглянули — запам'ятовуємо саме час дії, а не "зараз",
+    інакше подія, що прийшла під час перегляду, зникла б непоміченою. */
+function markSeen(driver) {
+  const a = lastActivity[driver];
+  if (!a) return;
+  seenActivity[driver] = a.at;
+  saveSeen();
+}
+
+function markAllSeen() {
+  Object.keys(lastActivity).forEach(d => { seenActivity[d] = lastActivity[d].at; });
+  saveSeen();
+  renderTable();
+}
+
+function updateNewBadge() {
+  const el = document.getElementById('new-badge');
+  if (!el) return;
+  const n = Object.keys(lastActivity).filter(isNewActivity).length;
+  el.hidden = n === 0;
+  el.textContent = '⚡ Nowe: ' + n + ' — oznacz jako przeczytane';
+}
+
+/** Чип із назвою останньої дії, який видно тільки поки її не переглянули. */
+function activityChip(driver) {
+  if (!isNewActivity(driver)) return '';
+  const a = lastActivity[driver];
+  const time = new Date(a.at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  return `<span class="act-chip">⚡ ${esc(a.what)} · ${time}</span>`;
 }
 
 // Ініціали водія для кружечка в таблиці
@@ -616,6 +1076,8 @@ function renderTable() {
   const latestAll = getLatestPerDriver(allData);
 
   let drivers = latestAll;
+  // Фільтр по групі машин діє першим — решта рахується вже всередині неї
+  drivers = drivers.filter(s => passesGroup(s.truck));
   if (currentFilter === 'active') drivers = drivers.filter(s => s.status === 'active');
   if (currentFilter === 'dhl') drivers = drivers.filter(s => s.group_type === 'DHL');
   if (currentFilter === 'ogolna') drivers = drivers.filter(s => s.group_type === 'Ogólna');
@@ -627,13 +1089,19 @@ function renderTable() {
   // Кілометри за поточний місяць — по всіх змінах, а не тільки по останніх
   const from = monthStart();
   let km = 0;
+  const truckByShiftKpi = {};
   allData.forEach(s => {
+    truckByShiftKpi[s.id] = s.truck;
+    if (!passesGroup(s.truck)) return;
     if (new Date(s.created_at) < from) return;
     if (s.start_km == null || s.end_km == null) return;
     const d = s.end_km - s.start_km;
     if (d > 0) km += d;
   });
-  const liters = monthFuels.reduce((sum, f) => sum + (parseFloat(f.liters) || 0), 0);
+  // У fuels номера авта немає — тягнемо його через зміну, як у buildFleet()
+  const liters = monthFuels
+    .filter(f => passesGroup(truckByShiftKpi[f.shift_id]))
+    .reduce((sum, f) => sum + (parseFloat(f.liters) || 0), 0);
 
   document.getElementById('kpi-km').textContent = km.toLocaleString('pl-PL') + ' km';
   document.getElementById('kpi-fuel').textContent = liters.toFixed(0) + ' L';
@@ -665,9 +1133,10 @@ function renderTable() {
       : '';
 
     const isOpen = s.id === openShiftId;
+    const fresh = isNewActivity(s.driver_name);
 
-    const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''}" onclick="toggleDetail('${s.id}')">
-      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>${esc(s.driver_name)}</div></td>
+    const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''} ${fresh ? 'row-new' : ''}" onclick="toggleDetail('${s.id}')">
+      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>${esc(s.driver_name)}${activityChip(s.driver_name)}</div></td>
       <td>${esc(s.truck)}</td>
       <td>${trailerCell(s)}</td>
       <td>${groupBadge(s.group_type)}</td>
@@ -690,6 +1159,7 @@ function renderTable() {
   }).join('');
 
   updateTimers();
+  updateNewBadge();
   // Розгорнута стрічка переживає авто-оновлення таблиці кожні 30 секунд
   if (openShiftId) loadTimeline(openShiftId);
 }
@@ -707,6 +1177,9 @@ function trailerCell(s) {
 }
 
 function toggleDetail(shiftId) {
+  // Розгорнув рядок — значить подивився, що там сталось
+  const row = allData.find(s => s.id === shiftId);
+  if (row) markSeen(row.driver_name);
   openShiftId = (openShiftId === shiftId) ? null : shiftId;
   renderTable();
 }
@@ -1440,18 +1913,54 @@ function groupBadge(g) {
 function phoneCell(v) {
   if (!v) return '<span class="dash">—</span>';
   const tel = String(v).replace(/[^0-9+]/g, '');
-  return `<a class="link" href="tel:${esc(tel)}">${esc(v)}</a>`;
+  return `<a class="contact c-tel" href="tel:${esc(tel)}">📞 ${esc(v)}</a>`;
 }
 
-// Якщо водій вписав номер — робимо посилання на WhatsApp.
-// Якщо це нік (Telegram тощо) — просто текст, вгадувати не будемо.
-function messengerCell(v) {
+/**
+ * Месенджер водія: WhatsApp або Telegram. Тип водій вибирає сам у профілі
+ * (drivers.messenger_type).
+ * Поки колонки чи вибору немає — вгадуємо по вигляду: самі цифри це
+ * WhatsApp, "@nick" — Telegram. Нік без @ і без типу лишається текстом:
+ * навмання відкривати чужий застосунок не варто.
+ */
+/* Значки месенджерів малюємо прямо тут, як SVG. Ніяких файлів і
+   зовнішніх посилань: дашборд — один статичний файл, і має лишитись таким.
+   Колір беремо фірмовий, поруч завжди є підпис — щоб було зрозуміло
+   навіть тому, хто значок бачить уперше. */
+const ICON_WA = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+  <circle cx="12" cy="12" r="11" fill="#25D366"/>
+  <path fill="#fff" d="M12 5.2a6.8 6.8 0 0 0-5.8 10.4l-.8 3 3.1-.8A6.8 6.8 0 1 0 12 5.2z"/>
+  <path fill="#25D366" d="M9.5 8.3c-.15-.33-.3-.34-.45-.35h-.38c-.13 0-.35.05-.53.25-.18.2-.7.68-.7 1.66s.72 1.92.82 2.05c.1.13 1.4 2.24 3.46 3.05 1.71.67 2.06.54 2.43.5.37-.03 1.2-.49 1.37-.96.17-.47.17-.87.12-.96-.05-.09-.18-.14-.38-.24l-1.4-.68c-.19-.09-.32-.13-.45.06l-.62.78c-.1.13-.21.14-.4.05-.19-.09-.82-.3-1.56-.96-.58-.51-.97-1.15-1.08-1.34-.11-.19-.01-.3.08-.39l.28-.33c.09-.11.12-.19.19-.32.06-.13.03-.24-.02-.33L9.5 8.3z"/>
+</svg>`;
+
+const ICON_TG = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+  <circle cx="12" cy="12" r="11" fill="#2AABEE"/>
+  <path fill="#fff" d="M17.9 7.1 5.9 11.7c-.6.24-.6.6-.1.75l3.05.95 1.15 3.5c.14.38.25.53.5.53.25 0 .36-.11.5-.25l1.45-1.4 3.02 2.23c.55.3.95.14 1.09-.51l1.96-9.2c.2-.8-.3-1.16-.83-.92l.11-.28z"/>
+  <path fill="#2AABEE" d="m9.2 13.3 7.2-4.4c.32-.2.6-.09.36.13l-5.85 5.28-.22 2.32-1.49-3.33z"/>
+</svg>`;
+
+function messengerCell(v, type) {
   if (!v) return '<span class="dash">—</span>';
-  const digits = String(v).replace(/[^0-9]/g, '');
-  if (digits.length >= 9) {
-    return `<a class="link" href="https://wa.me/${digits}" target="_blank" rel="noopener">${esc(v)}</a>`;
+  const raw = String(v).trim();
+  const digits = raw.replace(/[^0-9]/g, '');
+  const nick = raw.replace(/^@/, '');
+  const hasNumber = digits.length >= 9;
+
+  let kind = (type || '').toLowerCase();
+  if (!kind) kind = hasNumber ? 'whatsapp' : (raw.startsWith('@') ? 'telegram' : '');
+
+  if (kind === 'whatsapp' && hasNumber) {
+    return pillLink(`https://wa.me/${digits}`, 'c-wa', ICON_WA + ' WhatsApp', raw);
   }
-  return esc(v);
+  if (kind === 'telegram') {
+    const href = hasNumber ? `https://t.me/+${digits}` : `https://t.me/${encodeURIComponent(nick)}`;
+    return pillLink(href, 'c-tg', ICON_TG + ' Telegram', raw);
+  }
+  return esc(raw);
+}
+
+function pillLink(href, cls, label, title) {
+  return `<a class="contact ${cls}" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(title)}">${label}</a>`;
 }
 
 function fleetSearchHit(q, parts) {
@@ -1476,6 +1985,7 @@ function buildFleet() {
   function driverAgg(name) {
     if (!drivers[name]) {
       drivers[name] = { name, group: '', truck: '', phone: '', messenger: '',
+                        messengerType: '',
                         shifts: 0, km: 0, last: null, lastShift: null };
     }
     return drivers[name];
@@ -1496,6 +2006,7 @@ function buildFleet() {
     const a = driverAgg(d.name);
     a.phone = d.phone || '';
     a.messenger = d.messenger || '';
+    a.messengerType = d.messenger_type || '';
     a.truck = d.truck || '';
     a.group = d.group_type || '';
     if (d.truck) {
@@ -1579,7 +2090,7 @@ function renderKierowcy() {
   const q = (document.getElementById('k-search').value || '').trim().toLowerCase();
   const g = document.getElementById('k-group').value;
 
-  let rows = Object.values(buildFleet().drivers);
+  let rows = Object.values(buildFleet().drivers).filter(r => passesGroup(r.truck));
   if (g) rows = rows.filter(r => r.group === g);
   rows = rows.filter(r => fleetSearchHit(q, [r.name, r.truck, r.phone, r.messenger]));
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.name.localeCompare(b.name));
@@ -1599,7 +2110,7 @@ function renderKierowcy() {
     return `<tr>
       <td><div class="who"><div class="ava">${initials(r.name)}</div>${esc(r.name)}</div></td>
       <td>${phoneCell(r.phone)}</td>
-      <td>${messengerCell(r.messenger)}</td>
+      <td>${messengerCell(r.messenger, r.messengerType)}</td>
       <td>${esc(r.truck) || '<span class="dash">—</span>'}</td>
       <td>${groupBadge(r.group)}</td>
       <td>${stCell}</td>
@@ -1616,7 +2127,7 @@ function renderAuta() {
   const q = (document.getElementById('a-search').value || '').trim().toLowerCase();
   const g = document.getElementById('a-group').value;
 
-  let rows = Object.values(buildFleet().trucks);
+  let rows = Object.values(buildFleet().trucks).filter(r => passesGroup(r.truck));
   if (g) rows = rows.filter(r => r.group === g);
   rows = rows.filter(r => fleetSearchHit(q, [r.truck, r.key, ...r.drivers]));
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.truck.localeCompare(b.truck));
@@ -1657,7 +2168,9 @@ function renderNaczepy() {
   const q = (document.getElementById('n-search').value || '').trim().toLowerCase();
   const st = document.getElementById('n-status').value;
 
-  let rows = Object.values(buildFleet().trailers);
+  // Причіп належить групі через авто, яким його возять
+  let rows = Object.values(buildFleet().trailers)
+    .filter(r => passesGroup(r.lastRow && r.lastRow.truck));
   if (st === 'busy') rows = rows.filter(r => r.active);
   if (st === 'free') rows = rows.filter(r => !r.active);
   rows = rows.filter(r => {
@@ -1705,9 +2218,9 @@ const MEDIA_BUCKET = 'cmr-photos';
 
 const VIEW_TITLES = {
   drivers: 'Dashboard', kierowcy: 'Kierowcy', auta: 'Auta',
-  naczepy: 'Naczepy', media: 'Dokumenty', reports: 'Raporty',
+  naczepy: 'Naczepy', grupy: 'Grupy', media: 'Dokumenty', reports: 'Raporty',
 };
-const VIEWS = ['drivers', 'kierowcy', 'auta', 'naczepy', 'media', 'reports'];
+const VIEWS = ['drivers', 'kierowcy', 'auta', 'naczepy', 'grupy', 'media', 'reports'];
 
 function setView(v) {
   VIEWS.forEach(name => {
@@ -1720,6 +2233,12 @@ function setView(v) {
   // Списки флоти будуються з уже завантажених даних — перемальовуємо,
   // щоб вкладка не показувала "Ładowanie", якщо її відкрили вперше.
   if (v === 'kierowcy' || v === 'auta' || v === 'naczepy') renderFleet();
+  if (v === 'grupy') renderGroups();
+
+  // Фільтр по групах показуємо тільки там, де він на щось впливає
+  const bar = document.getElementById('group-bar');
+  const useful = ['drivers', 'kierowcy', 'auta', 'naczepy'].includes(v);
+  if (bar) bar.hidden = !useful || !fleetGroups.length;
   // Розділ звітів: підтягуємо список водіїв і ставимо поточний місяць
   if (v === 'reports') {
     fillReportDrivers();
