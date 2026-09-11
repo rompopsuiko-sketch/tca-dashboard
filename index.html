@@ -1005,7 +1005,10 @@ function initials(name) {
 function getLatestPerDriver(data) {
   const map = {};
   data.forEach(s => {
-    if (!map[s.driver_name]) map[s.driver_name] = s;
+    // Ключ нормалізований: інакше 'Roman Popsuiko' і 'Roman Popsuiko '
+    // дають два рядки на одного водія
+    const key = driverKey(s.driver_name);
+    if (!map[key]) map[key] = s;
   });
   return Object.values(map);
 }
@@ -1226,7 +1229,7 @@ async function loadTimeline(shiftId) {
     db.from('fuels').select('*').eq('shift_id', shiftId),
     db.from('cmr').select('*').eq('shift_id', shiftId),
     db.from('trailers_log').select('*')
-      .eq('driver_name', shift.driver_name)
+      .in('driver_name', nameVariants(shift.driver_name))
       .order('taken_at', { ascending: false }).limit(20),
   ]);
 
@@ -1413,7 +1416,7 @@ function setReportType(type) {
 function fillReportDrivers() {
   const sel = document.getElementById('rp-driver');
   const prev = sel.value;
-  const names = [...new Set(allData.map(s => s.driver_name).filter(Boolean))].sort();
+  const names = [...new Set(allData.map(s => driverKey(s.driver_name)).filter(Boolean))].sort();
   sel.innerHTML = '<option value="">— wybierz kierowcę —</option>' +
     names.map(n => `<option value="${n}">${n}</option>`).join('');
   if (names.includes(prev)) sel.value = prev;
@@ -1597,7 +1600,7 @@ async function generateWorkPDF(name, range) {
   const { data: shifts } = await db
     .from('shifts')
     .select('*')
-    .eq('driver_name', name)
+    .in('driver_name', nameVariants(name))
     .gte('created_at', range.fromISO)
     .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
@@ -1622,7 +1625,7 @@ async function generateWorkPDF(name, range) {
   const { data: delRows } = await db
     .from('delegations')
     .select('*')
-    .eq('driver_name', name)
+    .in('driver_name', nameVariants(name))
     .lte('started_at', range.toISO)
     .order('started_at', { ascending: true });
 
@@ -1753,7 +1756,7 @@ async function generateFuelPDF(name, range) {
   const { data: fuels } = await db
     .from('fuels')
     .select('*')
-    .eq('driver_name', name)
+    .in('driver_name', nameVariants(name))
     .gte('created_at', range.fromISO)
     .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
@@ -1978,11 +1981,34 @@ function plateKey(v) {
   return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/**
+ * Те саме для імені водія: зайвий пробіл у кінці робив з одного водія двох —
+ * у одного були контакти й нуль змін, у другого всі зміни й жодного контакту.
+ * Регістр лишаємо, бо ім'я показується як є.
+ */
+function driverKey(v) {
+  return String(v || '').trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Усі написання одного імені, які реально лежать у базі.
+ * Потрібно, поки db/naprawa_imion.sql не запущений: старі зміни можуть
+ * бути записані як 'Roman Popsuiko ' з пробілом, нові — вже без нього.
+ * Звіт по одному написанню загубив би половину змін, тому шукаємо по всіх.
+ */
+function nameVariants(name) {
+  const key = driverKey(name);
+  const set = new Set([name, key]);
+  allData.forEach(s => { if (driverKey(s.driver_name) === key) set.add(s.driver_name); });
+  return [...set].filter(Boolean);
+}
+
 /** Зводить зміни, картки водіїв і причепи в три списки для вкладок. */
 function buildFleet() {
   const drivers = {}, trucks = {}, trailers = {};
 
-  function driverAgg(name) {
+  function driverAgg(rawName) {
+    const name = driverKey(rawName);
     if (!drivers[name]) {
       drivers[name] = { name, group: '', truck: '', phone: '', messenger: '',
                         messengerType: '',
