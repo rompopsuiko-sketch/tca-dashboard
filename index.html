@@ -370,6 +370,35 @@
   .num { font-variant-numeric: tabular-nums; }
   .hint-box { color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 14px; }
 
+  /* ---- відкриті делегації ---- */
+  .del-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px; margin-bottom: 16px;
+  }
+  .del-head {
+    color: var(--muted); font-size: 11px; letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  .del-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .del-row:last-child { border-bottom: none; }
+  .del-row .btn { margin-left: auto; padding: 5px 12px; font-size: 13px; }
+  .del-meta { color: var(--muted); font-size: 12px; }
+  /* Червоним тільки те, де диспетчеру справді треба втрутитись:
+     делегація відкрита, а змін немає кілька діб. Сама тривалість
+     нічого не означає — два тижні в трасі це норма. */
+  .del-stale { background: var(--row-new-bg); }
+  .del-warn { color: var(--red); font-size: 12px; font-weight: 700; }
+
+  .del-tag {
+    display: inline-block; margin-top: 3px;
+    padding: 1px 8px; border-radius: 10px;
+    background: var(--card-alt); color: var(--muted);
+    font-size: 10px; font-weight: 700; white-space: nowrap;
+  }
+  .del-tag-warn { background: var(--red-dim); color: var(--red); }
   /* ---- Kalendarz: місячна сітка "хто коли працював" ---- */
   .cal-title { font-size: 16px; min-width: 170px; text-align: center; }
   .cal-legend {
@@ -750,6 +779,8 @@
     <span class="fleet-count" id="cal-count">—</span>
   </div>
 
+  <div class="del-panel" id="cal-open" hidden></div>
+
   <div class="cal-legend">
     <span><i class="cal-key cal-work"></i> Zmiana</span>
     <span><i class="cal-key cal-away"></i> Dzień w delegacji bez zmiany</span>
@@ -1089,6 +1120,203 @@ function renderGroupBar() {
     ${chips}`;
 }
 
+/* ---- Скільки днів зачепила зміна ----------------------------------
+   Зміна не завжди лежить в одній добі. Нічний доїзд 20:00 → 07:00 — це
+   два робочі дні, і другий з них раніше зникав: усе писалось під день
+   старту (created_at). Для оплати це помилка.
+
+   Але й "будь-який перетин" не годиться: зміна 23:50 → 00:10 зачіпає
+   наступну добу на десять хвилин, і цілий день за це рахувати безглуздо.
+   Тому є поріг. Число одне на весь файл — якщо бос вирішить інакше,
+   міняти треба тільки його.
+   ------------------------------------------------------------------- */
+const MIN_DAY_OVERLAP_H = 1;
+
+/* Незакрита зміна: водій забув натиснути фініш. Без обмеження одна така
+   зміна зафарбувала б увесь місяць. Довша за добу зміна — це вже зламані
+   дані, а не робота. */
+const MAX_OPEN_SHIFT_H = 24;
+
+/**
+ * Дні (yyyy-mm-dd), які зміна реально зачепила.
+ * День старту входить завжди — навіть двадцятихвилинна зміна о 23:50
+ * означає, що того дня водій працював.
+ */
+function shiftDayKeys(sh) {
+  const from = new Date(sh.start_time || sh.created_at);
+  if (isNaN(from)) return [];
+
+  let to = sh.end_time ? new Date(sh.end_time) : new Date();
+  if (isNaN(to) || to < from) to = from;
+  if (!sh.end_time) {
+    const cap = new Date(from.getTime() + MAX_OPEN_SHIFT_H * 3600000);
+    if (to > cap) to = cap;
+  }
+
+  const startKey = fmtDateInput(from);
+  const out = [];
+  for (let d = dayStart(from); d <= dayStart(to); d = addDays(d, 1)) {
+    const dayTo = addDays(d, 1);
+    const lo = from > d ? from : d;
+    const hi = to < dayTo ? to : dayTo;
+    const hours = (hi - lo) / 3600000;
+    const key = fmtDateInput(d);
+    if (key === startKey || hours >= MIN_DAY_OVERLAP_H) out.push(key);
+  }
+  return out;
+}
+
+/* Відкрита делегація без змін довше за це — швидше за все водій просто
+   забув відповісти "jadę do domu", і дні накручуються дарма. Три доби
+   довші за повний тижневий відпочинок 45 годин, тому законний постій
+   сюди не потрапляє. */
+const STALE_DELEGATION_DAYS = 3;
+
+/** Остання зміна водія (за часом старту), або null. */
+function lastShiftOf(driverKeyName) {
+  let best = null;
+  allData.forEach(s => {
+    if (driverKey(s.driver_name) !== driverKeyName) return;
+    const t = new Date(s.end_time || s.start_time || s.created_at);
+    if (isNaN(t)) return;
+    if (!best || t > best.at) best = { at: t, shift: s };
+  });
+  return best;
+}
+
+/** Відкриті делегації + скільки днів тривають і коли була остання зміна. */
+function openDelegations() {
+  return allDelegations
+    .filter(d => !d.ended_at)
+    .map(d => {
+      const key = driverKey(d.driver_name);
+      const last = lastShiftOf(key);
+      const days = Math.round(
+        (dayStart(new Date()) - dayStart(d.started_at)) / 86400000) + 1;
+      const quietDays = last
+        ? Math.round((dayStart(new Date()) - dayStart(last.at)) / 86400000)
+        : days;
+      return {
+        id: d.id, name: key, raw: d,
+        days: days,
+        quietDays: quietDays,
+        lastAt: last ? last.at : null,
+        stale: quietDays >= STALE_DELEGATION_DAYS,
+      };
+    })
+    .sort((a, b) => b.quietDays - a.quietDays || b.days - a.days);
+}
+
+/* ---- Відкриті делегації -------------------------------------------
+   Слабке місце всієї схеми: якщо водій жодного разу не відповів
+   "jadę do domu", делегація висить відкритою й накручує оплачувані дні
+   далі. Тривалість сама по собі ні про що не говорить — два тижні в
+   трасі це норма. Показова ознака інша: делегація відкрита, а змін
+   немає кілька діб поспіль.
+   ------------------------------------------------------------------- */
+
+function renderOpenDelegations() {
+  const box = document.getElementById('cal-open');
+  if (!box) return;
+
+  const list = openDelegations().filter(d => {
+    // Той самий фільтр груп, що й у решті дашборда
+    const last = lastShiftOf(d.name);
+    return passesGroup(d.raw.truck) || (last && passesGroup(last.shift.truck));
+  });
+
+  if (!list.length) { box.hidden = true; box.innerHTML = ''; return; }
+
+  box.hidden = false;
+  const rows = list.map((d, i) => {
+    const last = d.lastAt
+      ? 'ostatnia zmiana ' + d.lastAt.toLocaleDateString('pl-PL')
+      : 'brak zmian';
+    const warn = d.stale
+      ? '<span class="del-warn">⚠ ' + d.quietDays + ' dni bez zmiany</span>'
+      : '';
+    return '<div class="del-row' + (d.stale ? ' del-stale' : '') + '">'
+      + '<b>' + esc(d.name) + '</b>'
+      + '<span class="del-meta">od ' + new Date(d.raw.started_at).toLocaleDateString('pl-PL')
+      + ' · ' + d.days + ' dni · ' + last + '</span>'
+      + warn
+      + '<button class="btn" onclick="askCloseDelegation(' + i + ')">Zamknij</button>'
+      + '</div>';
+  }).join('');
+
+  openDelList = list;
+  box.innerHTML = '<div class="del-head">W delegacji teraz (' + list.length + ')</div>' + rows;
+}
+
+let openDelList = [];
+
+/** Диспетчер закриває делегацію за водія. Дату підставляємо з останньої
+    зміни — саме тоді водій найімовірніше й доїхав додому. */
+function askCloseDelegation(i) {
+  const d = openDelList[i];
+  if (!d) return;
+  const def = fmtDateInput(d.lastAt || new Date());
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'del-modal';
+  back.onclick = closeDelModal;
+  back.innerHTML = '<div class="modal-box" onclick="event.stopPropagation()">'
+    + '<h3>Zamknij delegację</h3>'
+    + '<div class="cal-modal-date">' + esc(d.name)
+    + ' · wyjazd ' + new Date(d.raw.started_at).toLocaleDateString('pl-PL') + '</div>'
+    + '<label>Data powrotu do domu</label>'
+    + '<input type="date" id="del-date" value="' + def + '">'
+    + '<div class="cal-note" style="margin-top:12px">'
+    + 'Dzień powrotu liczy się do delegacji. Ustaw datę, kiedy kierowca '
+    + 'naprawdę był w domu — od niej dni przestają być naliczane.</div>'
+    + '<div class="modal-actions">'
+    + '<button class="btn" onclick="closeDelModal()">Anuluj</button>'
+    + '<span class="spacer"></span>'
+    + '<button class="btn btn-primary" onclick="saveCloseDelegation(\'' + d.id + '\')">Zamknij delegację</button>'
+    + '</div></div>';
+  document.body.appendChild(back);
+}
+
+function closeDelModal() {
+  const el = document.getElementById('del-modal');
+  if (el) el.remove();
+}
+
+async function saveCloseDelegation(id) {
+  const v = (document.getElementById('del-date') || {}).value;
+  if (!v) { alert('Wybierz datę powrotu.'); return; }
+  // Полудень обраного дня: у рахунку важлива тільки дата, а середина
+  // доби не з'їде на сусідній день через часовий пояс.
+  const at = new Date(v + 'T12:00:00');
+
+  const { error } = await db.from('delegations')
+    .update({ ended_at: at.toISOString() })
+    .eq('id', id);
+
+  if (error) { alert('Nie udało się zamknąć: ' + error.message); return; }
+
+  closeDelModal();
+  const row = allDelegations.find(d => d.id === id);
+  if (row) row.ended_at = at.toISOString();
+  renderOpenDelegations();
+  renderKalendarz();
+  renderTable();
+}
+
+/** Підпис "W delegacji: N dni" під іменем водія на головному екрані. */
+function delegationTag(rawName) {
+  const key = driverKey(rawName);
+  const d = openDelegations().find(x => x.name === key);
+  if (!d) return '';
+  const cls = d.stale ? 'del-tag del-tag-warn' : 'del-tag';
+  const tip = d.stale
+    ? 'W delegacji ' + d.days + ' dni, bez zmiany od ' + d.quietDays + ' dni'
+    : 'W delegacji ' + d.days + ' dni';
+  return '<span class="' + cls + '" title="' + esc(tip) + '">W delegacji: '
+    + d.days + ' dni' + (d.stale ? ' ⚠' : '') + '</span>';
+}
+
 /* ===================== KALENDARZ =====================
    Місячна сітка "хто коли працював": рядок = водій, клітинка = день.
 
@@ -1149,6 +1377,8 @@ function renderKalendarz() {
   const to = new Date(first.getFullYear(), first.getMonth() + 1, 0);
   const todayKey = fmtDateInput(new Date());
 
+  renderOpenDelegations();
+
   const monthName = first.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
   document.getElementById('cal-title').textContent =
     monthName.charAt(0).toUpperCase() + monthName.slice(1);
@@ -1161,13 +1391,16 @@ function renderKalendarz() {
     return rows[key];
   }
 
+  const fromKey = fmtDateInput(from), toKey = fmtDateInput(to);
   allData.forEach(sh => {
-    const d = dayStart(sh.created_at);
-    if (d < from || d > to) return;
     if (!passesGroup(sh.truck)) return;
+    // Зміна може зачепити дві доби — тоді вона лягає в обидві.
+    // Нічний доїзд 20:00 → 07:00 це два робочі дні, а не один.
+    const keys = shiftDayKeys(sh).filter(k => k >= fromKey && k <= toKey);
+    if (!keys.length) return;
     const r = row(sh.driver_name);
-    const k = fmtDateInput(d);
-    (r.days[k] = r.days[k] || []).push(sh);
+    keys.forEach(k => { (r.days[k] = r.days[k] || []).push(sh); });
+    // Кілометри додаємо один раз на зміну, а не на кожен її день
     if (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km) {
       r.km += sh.end_km - sh.start_km;
     }
@@ -1255,6 +1488,7 @@ function calOpen(i, key) {
         + '<div class="cal-shift-sub">'
         + (esc(sh.start_city) || '—') + ' → ' + (esc(sh.end_city) || '—') + ' · ' + km
         + (sh.pause_type ? ' · pauza ' + esc(sh.pause_type) : '')
+        + (sh.went_home ? ' · 🏠 powrót do domu' : '')
         + '</div></div>';
     }).join('');
   } else if (r.away.has(key)) {
@@ -1802,7 +2036,9 @@ function renderTable() {
     const fresh = isNewActivity(s.driver_name);
 
     const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''} ${fresh ? 'row-new' : ''}" onclick="toggleDetail('${s.id}')">
-      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>${esc(s.driver_name)}${activityChip(s.driver_name)}</div></td>
+      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>
+        <div><div>${esc(s.driver_name)}${activityChip(s.driver_name)}</div>${delegationTag(s.driver_name)}</div>
+      </div></td>
       <td>${esc(s.truck)}</td>
       <td>${trailerCell(s)}</td>
       <td>${groupBadge(s.group_type)}</td>
@@ -1987,11 +2223,14 @@ async function loadTimeline(shiftId) {
   if (shift.end_time) {
     items.push({
       at: new Date(shift.end_time).getTime(), color: 'var(--red)',
-      head: 'Koniec zmiany',
+      // Відповідь "jadę do domu" закриває делегацію — і це має бути
+      // видно там, де диспетчер дивиться хронологію зміни
+      head: 'Koniec zmiany' + (shift.went_home ? ' · 🏠 powrót do domu' : ''),
       place: shift.end_city, lat: shift.end_lat, lon: shift.end_lon,
       detail: [
         shift.end_km != null ? `Licznik: ${shift.end_km} km` : '',
         shift.pause_type ? `Przerwa ${shift.pause_type}` : '',
+        shift.went_home ? 'Tą zmianą zamknięta delegacja' : '',
       ].filter(Boolean).join(' · '),
     });
   }
@@ -2218,11 +2457,14 @@ function buildDelegationSection(shifts, delegations, range) {
   const periodFrom = dayStart(range.fromISO);
   const periodTo = dayStart(range.toISO);
 
-  // Дні, у які була хоч одна зміна
+  // Дні, у які була хоч одна зміна. Зміна, що перетнула північ,
+  // лягає в обидві доби — див. shiftDayKeys().
+  const fromKey = fmtDateInput(periodFrom), toKey = fmtDateInput(periodTo);
   const shiftByDay = {};
   shifts.forEach(s => {
-    const k = fmtDateInput(new Date(s.created_at));
-    (shiftByDay[k] = shiftByDay[k] || []).push(s);
+    shiftDayKeys(s)
+      .filter(k => k >= fromKey && k <= toKey)
+      .forEach(k => { (shiftByDay[k] = shiftByDay[k] || []).push(s); });
   });
   const workDays = Object.keys(shiftByDay).length;
 
@@ -2258,9 +2500,12 @@ function buildDelegationSection(shifts, delegations, range) {
         const first = list[0];
         const last = list[list.length - 1];
         lastCity = last.end_city || last.start_city || lastCity;
+        // Зміна, після якої водій відповів "jadę do domu" — саме нею
+        // закривається делегація, тому це має бути видно в документі
+        const home = list.some(x => x.went_home) ? ' 🏠 powrót do domu' : '';
         rows += `<tr>
           <td>${label}</td>
-          <td>Praca — zmiana</td>
+          <td>Praca — zmiana${home}</td>
           <td>${(first.start_city || '—')} → ${(last.end_city || '—')}</td>
           <td>${last.pause_type ? 'Przerwa ' + last.pause_type : '—'}</td>
         </tr>`;
@@ -2286,10 +2531,17 @@ function buildDelegationSection(shifts, delegations, range) {
 
   const postojDays = [...awayDays].filter(k => !shiftByDay[k]).length;
 
+  // Zmiany i Dni robocze to dwie rozne liczby: jedna zmiana nocna
+  // 20:00 -> 07:00 to jeden start, ale dwa dni kalendarzowe.
   const summary = `<p class="info" style="margin-top:10px">
-      Dni robocze (ze zmianą): <b>${workDays}</b>
+      Zmiany: <b>${shifts.length}</b>
+      &nbsp;|&nbsp; Dni robocze (kalendarzowe): <b>${workDays}</b>
       &nbsp;|&nbsp; Dni w delegacji (z noclegiem): <b>${awayDays.size}</b>
       &nbsp;|&nbsp; w tym dni bez zmiany: <b>${postojDays}</b>
+    </p>
+    <p class="note" style="font-size:10px; color:#777; margin-top:4px">
+      Dzień liczy się jako roboczy, gdy zmiana obejmuje go co najmniej
+      ${MIN_DAY_OVERLAP_H} godz. Zmiana przez północ liczy się do obu dni.
     </p>`;
 
   if (!blocks) {
