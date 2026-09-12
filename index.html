@@ -295,6 +295,21 @@
   .group-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .group-chip .cnt { color: var(--muted); font-weight: 400; font-size: 12px; }
 
+  /* Чипи фільтрів головного екрана. Виглядають як чипи груп, тільки
+     дрібніші: їх у рядку більше, і вони не мають перетягувати увагу
+     з самої таблиці. */
+  .f-label { color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  .f-chip {
+    padding: 6px 13px; border-radius: 18px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); font-size: 13px; font-weight: 600; font-family: inherit;
+  }
+  .f-chip:hover { color: var(--text); border-color: var(--hover-border); }
+  .f-chip.on { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+  /* Розділювач між ознаками — щоб було видно, де закінчується одна група */
+  .f-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+  .f-clear { margin-left: auto; padding: 6px 14px; font-size: 13px; }
+
   .group-card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 14px; padding: 16px; margin-bottom: 12px;
@@ -499,11 +514,28 @@
   </div>
 </div>
 
-<div class="filters">
-  <button class="btn active" onclick="setFilter('all', this)">Wszyscy</button>
-  <button class="btn" onclick="setFilter('active', this)">🟢 Aktywni</button>
-  <button class="btn" onclick="setFilter('dhl', this)">BDF</button>
-  <button class="btn" onclick="setFilter('ogolna', this)">Ogólna</button>
+<!-- Фільтри списку водіїв. Кожна ознака — свій ряд чипів, усередині
+     ознаки вибір один, між ознаками діє "і": Ogólna + Załadowane покаже
+     завантажені причепи тільки в Ogólnej. Повторний клік знімає вибір,
+     тому окремої кнопки "всі" під кожною ознакою не треба.
+     Фільтр по власних групах диспетчера стоїть вище окремо — він діє
+     також на Kierowcy / Auta / Naczepy. -->
+<div class="filters" id="dash-filters">
+  <span class="f-label">Status</span>
+  <button class="f-chip" data-dim="status" data-val="active" onclick="setDashFilter('status','active')">W trasie</button>
+  <button class="f-chip" data-dim="status" data-val="idle" onclick="setDashFilter('status','idle')">Nieaktywni</button>
+
+  <span class="f-sep"></span>
+  <span class="f-label">Rodzaj</span>
+  <button class="f-chip" data-dim="kind" data-val="ogolna" onclick="setDashFilter('kind','ogolna')">Ogólna</button>
+  <button class="f-chip" data-dim="kind" data-val="dhl" onclick="setDashFilter('kind','dhl')">BDF</button>
+
+  <span class="f-sep"></span>
+  <span class="f-label">Ładunek</span>
+  <button class="f-chip" data-dim="cargo" data-val="loaded" onclick="setDashFilter('cargo','loaded')">Załadowane</button>
+  <button class="f-chip" data-dim="cargo" data-val="empty" onclick="setDashFilter('cargo','empty')">Puste</button>
+
+  <button class="btn f-clear" id="f-clear" hidden onclick="clearDashFilters()">Wyczyść wszystko</button>
 </div>
 
 <div class="table-wrap">
@@ -705,7 +737,54 @@
 
   let allData = [];
 let monthFuels = [];       // заправки за поточний місяць — для KPI
-let currentFilter = 'all';
+/* Фільтри списку водіїв. Порожнє значення = ознака не фільтрує.
+   Лежать у localStorage, як і вибрана група: у кожного диспетчера свій
+   набір, і після перезавантаження сторінки він не злітає.
+
+   Раніше тут стояли чотири кнопки з onclick="setFilter(...)", але самої
+   функції у файлі не було — клік падав з помилкою, і фільтр не працював
+   жодного разу. Тому не лагодимо старе, а робимо нормальний набір. */
+let dashFilter = loadDashFilter();
+
+function loadDashFilter() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('tca_dash_filter') || '{}');
+    return { status: raw.status || '', kind: raw.kind || '', cargo: raw.cargo || '' };
+  } catch (e) { return { status: '', kind: '', cargo: '' }; }
+}
+
+function saveDashFilter() {
+  try { localStorage.setItem('tca_dash_filter', JSON.stringify(dashFilter)); }
+  catch (e) { /* приватний режим — фільтр просто не переживе перезавантаження */ }
+}
+
+function setDashFilter(dim, val) {
+  // Повторний клік по вибраному чипу знімає його
+  dashFilter[dim] = dashFilter[dim] === val ? '' : val;
+  saveDashFilter();
+  renderTable();
+}
+
+/** Скидає все разом — і чипи, і вибрану групу. Для диспетчера це один
+    набір фільтрів, тому кнопка "скинути" теж має бути одна. */
+function clearDashFilters() {
+  dashFilter = { status: '', kind: '', cargo: '' };
+  saveDashFilter();
+  // setGroupFilter сам перемалює таблицю, тому renderTable тут тільки
+  // тоді, коли групу не чіпаємо
+  if (activeGroupId) setGroupFilter('');
+  else renderTable();
+}
+
+/** Підсвічує вибрані чипи й показує "Wyczyść", коли є що чистити. */
+function renderDashFilters() {
+  document.querySelectorAll('#dash-filters .f-chip').forEach(b => {
+    b.classList.toggle('on', dashFilter[b.dataset.dim] === b.dataset.val);
+  });
+  const clear = document.getElementById('f-clear');
+  const any = dashFilter.status || dashFilter.kind || dashFilter.cargo || activeGroupId;
+  if (clear) clear.hidden = !any;
+}
 let mediaObjects = null;   // null = zakładka Media jeszcze nie wczytana
 let mediaLoading = false;
 let activeTrailers = {};   // driver_name -> причіп, який зараз закріплений
@@ -783,7 +862,10 @@ async function loadDataInner() {
     // Таблиці ще нема (не запущено naczepy.sql) — колонка просто буде порожня
     console.warn('trailers_log niedostępne:', trError.message);
   } else {
-    (trData || []).forEach(t => { activeTrailers[t.driver_name] = t; });
+    // Ключ — зведене ім'я, як і в підсвітці активності: інакше водій,
+    // записаний десь із зайвим пробілом, показувався б як Solo при
+    // причепленому причепі.
+    (trData || []).forEach(t => { activeTrailers[driverKey(t.driver_name)] = t; });
   }
 
   // Картки водіїв: ім'я, авто, група + телефон/месенджер, який водій
@@ -892,7 +974,10 @@ function renderGroupBar() {
       ${esc(g.name)} <span class="cnt">${(g.trucks || []).length}</span>
     </button>`).join('');
 
+  // Підпис такий самий, як у фільтрів нижче — щоб два ряди читались
+  // як одна панель, а не як дві випадкові стрічки кнопок.
   bar.innerHTML = `
+    <span class="f-label">Grupa</span>
     <button class="group-chip ${activeGroupId ? '' : 'on'}" onclick="setGroupFilter('')">Wszystkie</button>
     ${chips}`;
 }
@@ -1350,9 +1435,17 @@ function renderTable() {
   let drivers = latestAll;
   // Фільтр по групі машин діє першим — решта рахується вже всередині неї
   drivers = drivers.filter(s => passesGroup(s.truck));
-  if (currentFilter === 'active') drivers = drivers.filter(s => s.status === 'active');
-  if (currentFilter === 'dhl') drivers = drivers.filter(s => s.group_type === 'DHL');
-  if (currentFilter === 'ogolna') drivers = drivers.filter(s => s.group_type === 'Ogólna');
+  if (dashFilter.status === 'active') drivers = drivers.filter(s => s.status === 'active');
+  if (dashFilter.status === 'idle')   drivers = drivers.filter(s => s.status !== 'active');
+  // В базі група BDF досі лежить як 'DHL' — стара назва, перейменована лише в UI
+  if (dashFilter.kind === 'dhl')      drivers = drivers.filter(s => s.group_type === 'DHL');
+  if (dashFilter.kind === 'ogolna')   drivers = drivers.filter(s => s.group_type === 'Ogólna');
+  if (dashFilter.cargo) {
+    drivers = drivers.filter(s => {
+      const t = activeTrailers[driverKey(s.driver_name)];
+      return !!t && t.cargo === dashFilter.cargo;
+    });
+  }
 
   document.getElementById('total').textContent = drivers.length;
   document.getElementById('active').textContent = drivers.filter(d => d.status === 'active').length;
@@ -1432,6 +1525,7 @@ function renderTable() {
 
   updateTimers();
   updateNewBadge();
+  renderDashFilters();
   // Розгорнута стрічка переживає авто-оновлення таблиці кожні 30 секунд
   if (openShiftId) loadTimeline(openShiftId);
 }
@@ -1439,7 +1533,7 @@ function renderTable() {
 // Колонка "Naczepa". Для Ogólna без причепа пишемо Solo,
 // для BDF прочерк — ця група причепи не веде.
 function trailerCell(s) {
-  const t = activeTrailers[s.driver_name];
+  const t = activeTrailers[driverKey(s.driver_name)];
   if (t) {
     const warn = t.taken_front ? '' : '<span class="trailer-nophoto">brak zdjęć</span>';
     // Стан вантажу другим рядком під номером. Порожній рядок, якщо статусу
@@ -2484,7 +2578,8 @@ function renderAuta() {
     const sh = r.lastShift;
     const inRoute = !!sh && sh.status === 'active';
     const driver = sh ? sh.driver_name : [...r.drivers][0];
-    const trailer = driver && activeTrailers[driver] ? activeTrailers[driver].trailer_number : null;
+    const at = driver ? activeTrailers[driverKey(driver)] : null;
+    const trailer = at ? at.trailer_number : null;
     const others = r.drivers.size > 1 ? `<span class="cell-sub">i jeszcze ${r.drivers.size - 1}</span>` : '';
 
     return `<tr>
