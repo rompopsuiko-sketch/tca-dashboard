@@ -776,6 +776,14 @@
     <b id="cal-title" class="cal-title">—</b>
     <button class="btn btn-icon" onclick="calShift(1)" title="Następny miesiąc">›</button>
     <button class="btn" onclick="calToday()">Bieżący miesiąc</button>
+    <input type="text" id="cal-search" placeholder="Szukaj kierowcy..." oninput="renderKalendarz()">
+    <select id="cal-sort" onchange="renderKalendarz()">
+      <option value="name">Alfabetycznie</option>
+      <option value="work">Najwięcej dni roboczych</option>
+      <option value="deleg">Najwięcej dni w delegacji</option>
+      <option value="idle">Najwięcej dni bez zmiany</option>
+      <option value="km">Najwięcej kilometrów</option>
+    </select>
     <span class="fleet-count" id="cal-count">—</span>
   </div>
 
@@ -1420,8 +1428,35 @@ function renderKalendarz() {
     for (let d = lo; d <= hi; d = addDays(d, 1)) r.away.add(fmtDateInput(d));
   });
 
-  calRows = Object.values(rows).sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  document.getElementById('cal-count').textContent = 'Kierowców: ' + calRows.length;
+  // Підсумки рахуємо тут, а не в розмітці: за ними ще й сортуємо
+  const all = Object.values(rows);
+  all.forEach(r => {
+    r.workDays = Object.keys(r.days).length;
+    // Дні у відрядженні, у які зміни не було — те, що раніше зникало зі звіту
+    r.awayNoShift = [...r.away].filter(k => !r.days[k]).length;
+  });
+
+  // Пошук і сортування. При 60 водіях суцільний список гортати нереально:
+  // диспетчеру треба або знайти конкретного, або побачити крайніх зверху.
+  const q = ((document.getElementById('cal-search') || {}).value || '').trim().toLowerCase();
+  const sort = (document.getElementById('cal-sort') || {}).value || 'name';
+
+  calRows = all.filter(r => fleetSearchHit(q, [r.name]));
+  const byName = (a, b) => a.name.localeCompare(b.name, 'pl');
+  // Другим ключем скрізь ім'я — інакше рядки з однаковим числом
+  // стрибають між перемальовуваннями кожні 30 секунд
+  const sorters = {
+    name: byName,
+    work: (a, b) => b.workDays - a.workDays || byName(a, b),
+    deleg: (a, b) => b.away.size - a.away.size || byName(a, b),
+    idle: (a, b) => b.awayNoShift - a.awayNoShift || byName(a, b),
+    km: (a, b) => b.km - a.km || byName(a, b),
+  };
+  calRows.sort(sorters[sort] || byName);
+
+  document.getElementById('cal-count').textContent =
+    q ? 'Kierowców: ' + calRows.length + ' z ' + all.length
+      : 'Kierowców: ' + calRows.length;
 
   const headCells = days.map(d => {
     const we = (d.getDay() === 0 || d.getDay() === 6) ? ' cal-we' : '';
@@ -1437,16 +1472,13 @@ function renderKalendarz() {
     + '<th class="cal-sum">km</th></tr>';
 
   if (!calRows.length) {
-    body.innerHTML = '<tr><td colspan="' + (days.length + 5)
-      + '" class="loading">Brak danych za ten miesiąc.</td></tr>';
+    body.innerHTML = '<tr><td colspan="' + (days.length + 5) + '" class="loading">'
+      + (q ? 'Nikt nie pasuje do wyszukiwania.' : 'Brak danych za ten miesiąc.')
+      + '</td></tr>';
     return;
   }
 
   body.innerHTML = calRows.map((r, i) => {
-    const workDays = Object.keys(r.days).length;
-    // Саме ці дні раніше зникали зі звіту — тому вони окремою колонкою
-    const awayNoShift = [...r.away].filter(k => !r.days[k]).length;
-
     const cells = days.map(d => {
       const k = fmtDateInput(d);
       const cls = r.days[k] ? 'cal-work' : (r.away.has(k) ? 'cal-away' : 'cal-none');
@@ -1458,9 +1490,9 @@ function renderKalendarz() {
 
     const dash = '<span class="dash">—</span>';
     return '<tr><td class="cal-name">' + esc(r.name) + '</td>' + cells
-      + '<td class="cal-sum num">' + workDays + '</td>'
+      + '<td class="cal-sum num">' + r.workDays + '</td>'
       + '<td class="cal-sum num">' + (r.away.size || dash) + '</td>'
-      + '<td class="cal-sum num">' + (awayNoShift || dash) + '</td>'
+      + '<td class="cal-sum num">' + (r.awayNoShift || dash) + '</td>'
       + '<td class="cal-sum num">' + (r.km ? r.km.toLocaleString('pl-PL') : dash) + '</td></tr>';
   }).join('');
 }
