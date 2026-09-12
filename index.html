@@ -2215,7 +2215,8 @@ async function loadTimeline(shiftId) {
   Object.keys(cmrByTour).forEach(tour => {
     items.push({
       at: cmrByTour[tour].at, color: '#6E40C9',
-      head: `CMR — trasa ${esc(tour)}`,
+      // В Ogólnej номера траси часто немає взагалі — тоді не вигадуємо
+      head: tour === '—' ? 'CMR — zdjęcia dokumentów' : `CMR — trasa ${esc(tour)}`,
       detail: `Zdjęć: ${cmrByTour[tour].photos.length}`,
       photos: cmrByTour[tour].photos,
     });
