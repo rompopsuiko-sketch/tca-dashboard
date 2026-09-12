@@ -33,6 +33,8 @@
     --tg-bg: #0C2438; --tg-text: #2AABEE; --tg-border: #1A4B70;
     --modal-back: rgba(0,0,0,.8);
     --row-new-bg: rgba(224,30,38,.05);   /* ледь помітний відтінок рядка з новою дією */
+    --yellow-bg: rgba(227,179,65,.14);   /* тло жовтих пігулок: є вантаж */
+    --green-bg: rgba(63,185,80,.14);     /* тло зелених: дія триває */
   }
 
   /* Світла тема. Диспетчер часто сидить біля вікна, і чорна панель
@@ -59,6 +61,8 @@
     --tg-bg: #E6F4FD; --tg-text: #1279B3; --tg-border: #A9D8F2;
     --modal-back: rgba(20,23,26,.45);
     --row-new-bg: rgba(204,19,25,.04);
+    --yellow-bg: rgba(154,103,0,.10);
+    --green-bg: rgba(26,127,55,.10);
   }
   /* На білому тлі картки без тіні зливаються — рамки замало */
   html[data-theme="light"] .table-wrap,
@@ -341,6 +345,13 @@
   .pill-busy { background: var(--red-dim); color: var(--red); }
   .pill-free { background: var(--blue-bg); color: var(--blue-text); }
   .pill-idle { background: var(--idle-bg); color: var(--muted); }
+  /* Ładunek окремим кольором від Podpięta/Wolna: дві колонки поруч,
+     і однакові кольори в них зливались би в одну пляму.
+     Жовтий — щось везе, сірий — порожня, зелений — дія триває. */
+  .pill-full { background: var(--yellow-bg); color: var(--yellow); }
+  .pill-empty { background: var(--idle-bg); color: var(--muted); }
+  .pill-act { background: var(--green-bg); color: var(--green); }
+  .pill-sm { font-size: 10px; padding: 2px 8px; display: inline-block; margin-top: 4px; }
   .num { font-variant-numeric: tabular-nums; }
   .hint-box { color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 14px; }
 
@@ -599,6 +610,12 @@
       <option value="busy">Podpięte</option>
       <option value="free">Wolne</option>
     </select>
+    <select id="n-cargo" onchange="renderNaczepy()">
+      <option value="">Ładunek: wszystko</option>
+      <option value="loaded">Załadowane</option>
+      <option value="empty">Puste</option>
+      <option value="unknown">Bez statusu</option>
+    </select>
     <span class="fleet-count" id="n-count">—</span>
   </div>
   <div class="table-wrap">
@@ -607,6 +624,7 @@
         <tr>
           <th>Naczepa</th>
           <th>Status</th>
+          <th>Ładunek</th>
           <th>Kierowca</th>
           <th>Auto</th>
           <th>Ostatnie miejsce</th>
@@ -615,12 +633,15 @@
           <th>Zdjęć</th>
         </tr>
       </thead>
-      <tbody id="n-body"><tr><td colspan="8" class="loading">Ładowanie...</td></tr></tbody>
+      <tbody id="n-body"><tr><td colspan="9" class="loading">Ładowanie...</td></tr></tbody>
     </table>
   </div>
   <div class="hint-box">
     Współrzędne i adres podpięcia oraz oddania naczepy są na głównym dashboardzie —
     kliknij wiersz kierowcy, rozwinie się lista zdarzeń zmiany.
+    <br>Ładunek prowadzi tylko grupa Ogólna: kierowca zaznacza go przy podpięciu,
+    potem zmienia się sam na koniec załadunku i rozładunku. Przy BDF jest kreska —
+    tam nie ma tych przycisków, więc status i tak by się zaciął.
   </div>
 </div>
 
@@ -750,9 +771,11 @@ async function loadDataInner() {
 
   // Причепи, які зараз закріплені за водіями. Порожній released_at
   // означає "ще не здано". Один рядок на водія гарантує індекс у базі.
+  // select('*'), як і в drivers: перелік колонок ламався б щоразу,
+  // коли в таблицю додається нова (як сталось із cargo).
   const { data: trData, error: trError } = await db
     .from('trailers_log')
-    .select('driver_name, trailer_number, taken_at, taken_front')
+    .select('*')
     .is('released_at', null);
 
   activeTrailers = {};
@@ -778,9 +801,11 @@ async function loadDataInner() {
 
   // Уся історія причепів під вкладку Naczepy. Активні причепи лишаємо
   // окремим запитом вище — той завжди свіжий і не залежить від ліміту.
+  // Теж select('*') — щоб нова колонка не вимикала цілу вкладку
+  // до того, як хтось запустить SQL.
   const { data: trAll, error: trAllError } = await db
     .from('trailers_log')
-    .select('driver_name, truck, trailer_number, taken_at, taken_city, taken_place, taken_front, taken_back, taken_left, taken_right, released_at, released_city, released_place, released_front, released_back, released_left, released_right')
+    .select('*')
     .order('taken_at', { ascending: false })
     .limit(500);
   allTrailers = trAllError ? [] : (trAll || []);
@@ -1417,7 +1442,11 @@ function trailerCell(s) {
   const t = activeTrailers[s.driver_name];
   if (t) {
     const warn = t.taken_front ? '' : '<span class="trailer-nophoto">brak zdjęć</span>';
-    return `<span class="trailer-num">${esc(t.trailer_number)}</span>${warn}`;
+    // Стан вантажу другим рядком під номером. Порожній рядок, якщо статусу
+    // немає — у BDF так буде завжди, і зайва кривулька там ні до чого.
+    const cargo = cargoPill(t.cargo, s.current_activity, true);
+    return `<span class="trailer-num">${esc(t.trailer_number)}</span>${warn}`
+      + (cargo ? `<br>${cargo}` : '');
   }
   if (s.group_type === 'Ogólna') return '<span class="trailer-solo">Solo</span>';
   return '—';
@@ -2474,17 +2503,49 @@ function renderAuta() {
   }).join('');
 }
 
+/**
+ * Пігулка зі станом вантажу.
+ *
+ * Порожньо буває у старих рядків і в усього BDF — там статус не ведеться.
+ * Показуємо прочерк, а не вигадуємо "pusta": диспетчер має бачити різницю
+ * між "точно порожня" й "невідомо".
+ *
+ * activity — відкрита подія водія (shifts.current_activity). Поки завантаження
+ * триває, воно важливіше за збережений стан: вантаж саме зараз міняється.
+ */
+function cargoPill(cargo, activity, small) {
+  const cls = small ? 'pill pill-sm ' : 'pill ';
+  if (activity === 'ZAŁADUNEK')  return `<span class="${cls}pill-act">Trwa załadunek</span>`;
+  if (activity === 'ROZŁADUNEK') return `<span class="${cls}pill-act">Trwa rozładunek</span>`;
+  if (cargo === 'loaded') return `<span class="${cls}pill-full">Załadowana</span>`;
+  if (cargo === 'empty')  return `<span class="${cls}pill-empty">Pusta</span>`;
+  return small ? '' : '<span class="dash">—</span>';
+}
+
+/** Що зараз робить водій, за його останньою зміною. Ключ — зведене ім'я. */
+function activityByDriver() {
+  const map = {};
+  getLatestPerDriver(allData).forEach(sh => {
+    map[driverKey(sh.driver_name)] = sh.current_activity || null;
+  });
+  return map;
+}
+
 function renderNaczepy() {
   const body = document.getElementById('n-body');
   if (!body) return;
   const q = (document.getElementById('n-search').value || '').trim().toLowerCase();
   const st = document.getElementById('n-status').value;
+  const cg = document.getElementById('n-cargo').value;
 
   // Причіп належить групі через авто, яким його возять
   let rows = Object.values(buildFleet().trailers)
     .filter(r => passesGroup(r.lastRow && r.lastRow.truck));
   if (st === 'busy') rows = rows.filter(r => r.active);
   if (st === 'free') rows = rows.filter(r => !r.active);
+  if (cg === 'loaded')  rows = rows.filter(r => (r.lastRow || {}).cargo === 'loaded');
+  if (cg === 'empty')   rows = rows.filter(r => (r.lastRow || {}).cargo === 'empty');
+  if (cg === 'unknown') rows = rows.filter(r => !(r.lastRow || {}).cargo);
   rows = rows.filter(r => {
     const t = r.lastRow || {};
     return fleetSearchHit(q, [r.number, r.key, t.driver_name, t.truck,
@@ -2495,12 +2556,17 @@ function renderNaczepy() {
   document.getElementById('n-count').textContent = 'Naczep: ' + rows.length;
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="loading">Żadna naczepa nie przeszła jeszcze przez aplikację.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="loading">Żadna naczepa nie przeszła jeszcze przez aplikację.</td></tr>';
     return;
   }
 
+  const acts = activityByDriver();
+
   body.innerHTML = rows.map(r => {
     const t = r.lastRow || {};
+    // "Trwa załadunek" показуємо тільки для закріпленого причепа:
+    // у вільного водія поруч немає, і чужа дія його не стосується.
+    const act = r.active ? acts[driverKey(t.driver_name)] : null;
     // Причіп закріплений — показуємо місце підчеплення.
     // Здано — місце, де водій його лишив.
     const place = r.active
@@ -2514,6 +2580,7 @@ function renderNaczepy() {
       <td>${r.active
         ? '<span class="pill pill-busy">Podpięta</span>'
         : '<span class="pill pill-free">Wolna</span>'}</td>
+      <td>${cargoPill(t.cargo, act)}</td>
       <td>${esc(t.driver_name) || '<span class="dash">—</span>'}</td>
       <td>${esc(t.truck) || '<span class="dash">—</span>'}</td>
       <td>${place && place !== '—' ? '📍 ' + esc(place) : '<span class="dash">—</span>'}</td>
