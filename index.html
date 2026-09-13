@@ -993,9 +993,26 @@ function esc(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/* Дата з бази.
+
+   Частина колонок створена як timestamp БЕЗ часової зони: events.started_at,
+   events.ended_at, fuels.created_at. Postgres віддає їх рядком без "Z" на
+   кінці, а new Date() такий рядок читає як МІСЦЕВИЙ час. У Польщі це давало
+   зсув на дві години назад: ZAŁADUNEK о 18:43 показувався як 16:43 і в
+   стрічці подій опинявся раніше за старт зміни — звідси й "не по порядку".
+
+   У базі час завжди UTC (застосунок пише toISOString()), тому бракуючу зону
+   просто дописуємо. Після db/czas_strefy.sql зона в базі вже є і ця функція
+   нічого не міняє — лишається як страховка для старих рядків. */
+function ts(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'string' && /^\d{4}-\d\d-\d\dT[\d:.]+$/.test(v)) return new Date(v + 'Z');
+  return new Date(v);
+}
+
 // Коротко для таблиці: "Wrocław, Amazon WRO1"
 function shortPlace(city, place) {
-  return [city, place].filter(p => p && p !== 'Brak GPS').join(', ') || (city || '—');
+  return [city, place].filter(p => p && p !== 'Brak GPS').join(', ') || city || '';
 }
 
 // Початок поточного місяця. Рахуємо локально, не через toISOString на даті,
@@ -1824,10 +1841,10 @@ function buildActivity(events, fuels, cmrs) {
   function bump(driver, at, what) {
     const key = driverKey(driver);
     if (!key || !at) return;
-    const t = new Date(at).getTime();
+    const t = ts(at).getTime();
     if (!t || t < since || t > soon) return;
     const cur = lastActivity[key];
-    if (!cur || t > new Date(cur.at).getTime()) lastActivity[key] = { at, what };
+    if (!cur || t > ts(cur.at).getTime()) lastActivity[key] = { at, what };
   }
 
   allData.forEach(s => {
@@ -1853,7 +1870,7 @@ function isNewActivity(driver) {
   const a = lastActivity[key];
   if (!a) return false;
   const seen = seenActivity[key];
-  return !seen || new Date(a.at) > new Date(seen);
+  return !seen || ts(a.at) > ts(seen);
 }
 
 /** Водія переглянули — запам'ятовуємо саме час дії, а не "зараз",
@@ -1877,7 +1894,7 @@ function newActivityList() {
   return Object.keys(lastActivity)
     .filter(isNewActivity)
     .map(d => ({ driver: d, at: lastActivity[d].at, what: lastActivity[d].what }))
-    .sort((a, b) => new Date(b.at) - new Date(a.at));
+    .sort((a, b) => ts(b.at) - ts(a.at));
 }
 
 function updateNewBadge() {
@@ -1904,7 +1921,7 @@ function renderNotif(list) {
   // (O'Brien) зламало б код прямо в атрибуті onclick.
   notifList = list;
   const items = list.map((a, i) => {
-    const t = new Date(a.at).toLocaleString('pl-PL',
+    const t = ts(a.at).toLocaleString('pl-PL',
       { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     return `<button class="notif-item" onclick="openFromNotif(${i})">
       <b>${esc(a.driver)}</b>
@@ -1966,7 +1983,7 @@ function updateClock() {
 function activityChip(driver) {
   if (!isNewActivity(driver)) return '';
   const a = lastActivity[driverKey(driver)];
-  const time = new Date(a.at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  const time = ts(a.at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
   return `<span class="act-chip">⚡ ${esc(a.what)} · ${time}</span>`;
 }
 
@@ -2224,8 +2241,8 @@ async function loadTimeline(shiftId) {
   ]);
 
   const items = [];
-  const t0 = new Date(shift.start_time || shift.created_at).getTime();
-  const t1 = shift.end_time ? new Date(shift.end_time).getTime() : Date.now();
+  const t0 = ts(shift.start_time || shift.created_at).getTime();
+  const t1 = shift.end_time ? ts(shift.end_time).getTime() : Date.now();
 
   items.push({
     at: t0, color: 'var(--green)', head: 'Start zmiany',
@@ -2235,25 +2252,25 @@ async function loadTimeline(shiftId) {
 
   (ev.data || []).forEach(e => {
     items.push({
-      at: new Date(e.started_at).getTime(), color: 'var(--yellow)',
+      at: ts(e.started_at).getTime(), color: 'var(--yellow)',
       head: 'Start: ' + esc(e.event_type),
       place: shortPlace(e.start_city, e.start_place),
       lat: e.start_lat, lon: e.start_lon, address: e.start_address,
     });
     if (e.ended_at) {
       items.push({
-        at: new Date(e.ended_at).getTime(), color: 'var(--yellow)',
+        at: ts(e.ended_at).getTime(), color: 'var(--yellow)',
         head: 'Koniec: ' + esc(e.event_type),
         place: shortPlace(e.end_city, e.end_place),
         lat: e.end_lat, lon: e.end_lon, address: e.end_address,
-        detail: 'Trwało: ' + formatDuration(new Date(e.ended_at) - new Date(e.started_at)),
+        detail: 'Trwało: ' + formatDuration(ts(e.ended_at) - ts(e.started_at)),
       });
     }
   });
 
   (fu.data || []).forEach(f => {
     items.push({
-      at: new Date(f.created_at).getTime(), color: '#E3862B',
+      at: ts(f.created_at).getTime(), color: '#E3862B',
       head: `Tankowanie — ${f.liters} L`,
       detail: `Licznik: ${f.km} km`,
     });
@@ -2263,7 +2280,7 @@ async function loadTimeline(shiftId) {
   const cmrByTour = {};
   (cm.data || []).forEach(c => {
     const k = c.tour_number || '—';
-    if (!cmrByTour[k]) cmrByTour[k] = { at: new Date(c.created_at).getTime(), photos: [] };
+    if (!cmrByTour[k]) cmrByTour[k] = { at: ts(c.created_at).getTime(), photos: [] };
     cmrByTour[k].photos.push(c.photo_url);
   });
   Object.keys(cmrByTour).forEach(tour => {
@@ -2279,10 +2296,16 @@ async function loadTimeline(shiftId) {
   // Причепи: показуємо ті, що перетинаються в часі з цією зміною.
   // Причіп вибирається ще при логіні, тому може бути взятий до старту зміни.
   (tr.data || []).forEach(t => {
-    const tk = new Date(t.taken_at).getTime();
-    const rl = t.released_at ? new Date(t.released_at).getTime() : null;
+    const tk = ts(t.taken_at).getTime();
+    const rl = t.released_at ? ts(t.released_at).getTime() : null;
     const overlaps = t.shift_id === shiftId || (tk <= t1 && (rl === null || rl >= t0));
     if (!overlaps) return;
+
+    // Причіп водій вибирає ще при логіні, тому підчеплення часто сталося
+    // до старту цієї зміни — інколи взагалі попереднього дня. Підписуємо
+    // це прямо в пункті, інакше диспетчер шукає, звідки в сьогоднішній
+    // зміні взялись учорашні фото.
+    const earlier = tk < t0 ? 'Podpięta przed tą zmianą · ' : '';
 
     items.push({
       at: tk, color: 'var(--red)',
@@ -2290,8 +2313,14 @@ async function loadTimeline(shiftId) {
       place: shortPlace(t.taken_city, t.taken_place),
       lat: t.taken_lat, lon: t.taken_lon, address: t.taken_address, note: t.taken_note,
       photos: [t.taken_front, t.taken_back, t.taken_left, t.taken_right].filter(Boolean),
+      detail: earlier + (t.taken_city || t.taken_place || t.taken_lat != null
+        ? '' : 'Wybrana przy logowaniu — bez GPS'),
       // Для причепів адресу й координати показуємо одразу, без кліку
-      alwaysDetail: true, manualCheck: true,
+      alwaysDetail: true,
+      // "Вписано вручну" має сенс тільки тоді, коли місце справді є, а
+      // координат немає. Рядок із логіну не має ні місця, ні координат —
+      // водія ніхто ні про що не питав, і писати йому це було брехнею.
+      manualCheck: !!(t.taken_city || t.taken_place),
     });
 
     if (rl !== null) {
@@ -2302,14 +2331,15 @@ async function loadTimeline(shiftId) {
         lat: t.released_lat, lon: t.released_lon, address: t.released_address, note: t.released_note,
         photos: [t.released_front, t.released_back, t.released_left, t.released_right].filter(Boolean),
         detail: 'Naczepa była podpięta: ' + formatDuration(rl - tk),
-        alwaysDetail: true, manualCheck: true,
+        alwaysDetail: true,
+        manualCheck: !!(t.released_city || t.released_place),
       });
     }
   });
 
   if (shift.end_time) {
     items.push({
-      at: new Date(shift.end_time).getTime(), color: 'var(--red)',
+      at: ts(shift.end_time).getTime(), color: 'var(--red)',
       // Відповідь "jadę do domu" закриває делегацію — і це має бути
       // видно там, де диспетчер дивиться хронологію зміни
       head: 'Koniec zmiany' + (shift.went_home ? ' · 🏠 powrót do domu' : ''),
@@ -2322,18 +2352,22 @@ async function loadTimeline(shiftId) {
     });
   }
 
-  items.sort((a, b) => a.at - b.at);
+  // Найновіше зверху. Диспетчер відкриває рядок, щоб побачити, що з водієм
+  // ЗАРАЗ, а не як починався день. При хронології знизу вгору перше, що
+  // впадало в око, було підчеплення причепа з учора — найменш актуальний
+  // пункт у списку.
+  items.sort((a, b) => b.at - a.at);
   box.innerHTML = renderTimeline(shift, items);
 }
 
 function renderTimeline(shift, items) {
   if (items.length === 0) return '<div class="loading">Brak zdarzeń w tej zmianie.</div>';
 
-  const day = new Date(shift.start_time || shift.created_at)
+  const day = ts(shift.start_time || shift.created_at)
     .toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' });
 
   const rows = items.map((it, i) => {
-    const time = new Date(it.at).toLocaleString('pl-PL', {
+    const time = new Date(it.at).toLocaleString('pl-PL', {  // it.at — вже число
       day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
     });
     const id = `d-${shift.id}-${i}`;
@@ -2379,7 +2413,7 @@ function renderTimeline(shift, items) {
     </div>`;
   }).join('');
 
-  return `<div class="tl-title">ZDARZENIA ZMIANY · ${day}</div>${rows}`;
+  return `<div class="tl-title">ZDARZENIA ZMIANY · ${day} · od najnowszych</div>${rows}`;
 }
 
 function toggleMore(id) {
@@ -2930,7 +2964,7 @@ async function generateFuelPDF(name, range) {
       const l100 = (diff && diff > 0) ? (liters / diff * 100) : null;
       if (i > 0) litersAfterFirst += liters;
 
-      const d = new Date(f.created_at);
+      const d = ts(f.created_at);
       rows += `<tr style="background:${bg}">
         <td>${d.toLocaleDateString('pl-PL')}</td>
         <td>${d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</td>
