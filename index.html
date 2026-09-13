@@ -465,6 +465,29 @@
     .side-foot { display: none; }
     .main { padding: 18px 16px; }
   }
+
+  /* ---- ekran logowania ----
+     Сама сторінка публічна (статичний файл на Vercel), тому пароль тут
+     нічого не вирішує сам по собі: дані закриті політиками RLS у базі,
+     і без сесії Supabase запити просто не повертають рядків. Ця форма —
+     спосіб отримати сесію, а не замок на дверях. */
+  .login { position: fixed; inset: 0; background: var(--bg); z-index: 200;
+           display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .login-box { width: 100%; max-width: 340px; background: var(--card);
+               border: 1px solid var(--border); border-radius: 14px; padding: 28px 24px;
+               display: flex; flex-direction: column; gap: 12px; }
+  .login-logo { text-align: center; font-size: 26px; font-weight: 800; letter-spacing: 3px; }
+  .login-logo b { color: var(--red); }
+  .login-title { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .login-box input { background: var(--card-alt); border: 1px solid var(--border);
+                     border-radius: 8px; padding: 11px 12px; color: var(--text); font-size: 14px; }
+  .login-box input:focus { outline: none; border-color: var(--red); }
+  .login-box button { padding: 11px; font-size: 14px; justify-content: center; }
+  .login-err { color: var(--red); font-size: 13px; text-align: center; min-height: 18px; }
+
+  /* .shell має display:flex, а .login — display:flex теж. Без цього
+     правила атрибут hidden на них не спрацював би. */
+  [hidden] { display: none !important; }
 </style>
 <script>
   // Ставимо тему ще до малювання сторінки — інакше при світлій темі
@@ -479,7 +502,21 @@
 </head>
 <body>
 
-<div class="shell">
+<!-- Обидва блоки сховані на старті. Що показати — вирішує bootAuth()
+     внизу файла, коли спитає Supabase, чи є жива сесія. Так дані не
+     блимають на екрані до перевірки. -->
+<div class="login" id="login" hidden>
+  <form class="login-box" onsubmit="doLogin(event)">
+    <div class="login-logo"><b>T</b>CA</div>
+    <div class="login-title">Panel dyspozytora</div>
+    <input type="email" id="login-email" placeholder="E-mail" autocomplete="username" required>
+    <input type="password" id="login-pass" placeholder="Hasło" autocomplete="current-password" required>
+    <button class="btn btn-primary" type="submit" id="login-btn">Zaloguj</button>
+    <div class="login-err" id="login-err"></div>
+  </form>
+</div>
+
+<div class="shell" id="shell" hidden>
 
 <aside class="sidebar">
   <div class="brand">
@@ -557,6 +594,13 @@
   </div>
 
   <button class="btn btn-icon" id="btn-theme" onclick="toggleTheme()" title="Jasny / ciemny motyw"></button>
+
+  <button class="btn btn-icon" id="btn-logout" onclick="doLogout()" title="Wyloguj">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+      <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+    </svg>
+  </button>
 </div>
 
 <!-- Фільтр по групах машин. Діє одразу на всі списки: Dashboard,
@@ -2373,13 +2417,87 @@ function toggleTheme() {
 
 applyTheme(localStorage.getItem('tca_theme') || 'dark');
 
-setInterval(updateTimers, 60000);
-updateClock();
-setInterval(updateClock, 20000);
-loadData();
+/* ---- logowanie dyspozytora ----
+   Пароль перевіряє Supabase Auth, не цей файл: у файлі його тримати
+   безглуздо, бо index.html лежить у публічному репозиторії. Справжній
+   захист — політики RLS у базі: без сесії запити не повертають рядків.
+   Форма тут лише для того, щоб цю сесію отримати.
 
+   Сесія живе в localStorage браузера (це вміє сам supabase-js), тому
+   диспетчер логіниться рідко, а не щоранку. */
 
-setInterval(loadData, 30000);
+let dashStarted = false;
+
+// Запити й таймери не стартують, поки немає сесії — інакше сторінка
+// довбала б базу помилками ще на екрані логіну.
+function startDashboard() {
+  if (dashStarted) return;
+  dashStarted = true;
+  setInterval(updateTimers, 60000);
+  updateClock();
+  setInterval(updateClock, 20000);
+  loadData();
+  setInterval(loadData, 30000);
+}
+
+function showLogin(msg) {
+  document.getElementById('shell').hidden = true;
+  document.getElementById('login').hidden = false;
+  document.getElementById('login-err').textContent = msg || '';
+  document.getElementById('login-email').focus();
+}
+
+function showApp() {
+  document.getElementById('login').hidden = true;
+  document.getElementById('shell').hidden = false;
+  startDashboard();
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-err');
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+
+  btn.disabled = true;
+  err.textContent = '';
+  const { error } = await db.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false;
+
+  if (error) {
+    // Supabase віддає англійський текст; найчастіший випадок підписуємо самі
+    err.textContent = error.message === 'Invalid login credentials'
+      ? 'Błędny e-mail lub hasło'
+      : 'Nie udało się zalogować: ' + error.message;
+    return;
+  }
+  document.getElementById('login-pass').value = '';
+  showApp();
+}
+
+async function doLogout() {
+  await db.auth.signOut();
+  // Перезавантаження, а не просто showLogin(): так напевно гаснуть
+  // таймери автооновлення, і вже завантажені дані зникають з пам'яті.
+  location.reload();
+}
+
+(async function bootAuth() {
+  try {
+    const { data } = await db.auth.getSession();
+    if (data && data.session) showApp();
+    else showLogin();
+  } catch (e) {
+    showLogin('Brak połączenia z serwerem');
+  }
+
+  // Токен живе близько години й оновлюється сам. Якщо оновити не вдалось
+  // (пароль змінили, сесію відкликали) — повертаємо форму логіну.
+  db.auth.onAuthStateChange(function (event) {
+    if (event === 'SIGNED_OUT') showLogin();
+  });
+})();
   
   /* ===================== RAPORTY PDF ===================== */
 
