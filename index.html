@@ -136,6 +136,24 @@
   /* ---- основна частина ---- */
   .main { flex: 1; padding: 22px 20px; min-width: 0; }
   .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  /* Мітка звуженої області. Навмисно поруч із заголовком, а не серед
+     чипів фільтрів: фільтр знімають щодня, область ставлять раз і
+     забувають — тому вона мусить нагадувати про себе сама. */
+  .scope-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--accent-dim); color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 999px;
+    padding: 4px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+    white-space: nowrap;
+  }
+  .scope-tag::after { content: '✕'; opacity: .7; }
+  .prefs-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .prefs-chip {
+    padding: 8px 14px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); font-size: 13px;
+  }
+  .prefs-chip.on { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); font-weight: bold; }
   h1 { font-size: 26px; color: var(--text); }
 
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
@@ -663,6 +681,13 @@
   <button class="btn btn-icon btn-nav" onclick="toggleNav()" title="Zwiń / rozwiń menu">☰</button>
   <h1 id="page-title">Dashboard</h1>
 
+  <!-- Звужену область ВИДНО ЗАВЖДИ. Прихований постійний фільтр — це
+       механізм, яким система обліку починає брехати: диспетчер поставив
+       «тільки BDF», через тиждень забув, і водій з Ogólnej зник з екрана
+       разом зі своєю проблемою. -->
+  <span class="scope-tag" id="scope-tag" hidden onclick="clearScope()"
+        title="Widok zawężony — kliknij, żeby pokazać wszystko"></span>
+
   <div class="clock">
     <b id="clock-time">--:--</b>
     <span id="clock-date">—</span>
@@ -688,6 +713,13 @@
   </div>
 
   <button class="btn btn-icon" id="btn-theme" onclick="toggleTheme()" title="Jasny / ciemny motyw"></button>
+
+  <button class="btn btn-icon" id="btn-prefs" onclick="openPrefs()" title="Moje ustawienia">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
 
   <button class="btn btn-icon" id="btn-logout" onclick="doLogout()" title="Wyloguj">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1092,6 +1124,18 @@ let calMonth = null;            // місяць, відкритий у кале�
 const ACTIVITY_WINDOW_H = 48;   // глибина, на яку взагалі дивимось активність
 let fleetGroups = [];      // групи машин, які диспетчер зібрав сам
 let activeGroupId = localStorage.getItem('tca_group_filter') || '';  // вибраний фільтр
+
+// Особисті налаштування диспетчера (див. «USTAWIENIA DYSPOZYTORA» нижче).
+// Оголошені тут, а не поруч зі своїм кодом: їх читає startDashboard()
+// одразу після логіну, а він у файлі вище. З let у середині файлу це
+// впало б на «Cannot access before initialization» при першому ж вході.
+//
+// Дзеркало в localStorage — щоб сторінка малювалась одразу у своєму
+// вигляді, а не блимала загальним, поки летить запит до бази.
+let prefs = (() => {
+  try { return JSON.parse(localStorage.getItem('tca_prefs') || '{}'); }
+  catch { return {}; }
+})();
 let driverCards = {};      // drivers.id -> картка водія (ім'я, контакти, is_active)
 // Довідник флоти: plate_key -> рядок з public.trucks / public.trailers.
 // Це список, який веде диспетчер, а не те, що назбиралось зі змін. Тому
@@ -1256,6 +1300,7 @@ async function loadDataInner() {
 
   // Групи машин, які диспетчер зібрав сам — фільтр діє на всі списки
   await loadFleetGroups();
+  applyPrefs();   // назва групи в мітці області відома аж тепер
   renderGroupBar();
 
   // Активність водіїв за останню добу-дві: події, заправки, CMR.
@@ -1308,6 +1353,18 @@ async function loadFleetGroups() {
 
 function activeGroup() {
   return fleetGroups.find(g => g.id === activeGroupId) || null;
+}
+
+/**
+ * Чи проходить рядок крізь ОБЛАСТЬ диспетчера (його частину фірми).
+ *
+ * Це не те саме, що passesGroup нижче: та відповідає за тимчасовий вибір
+ * групи машин, а це — за постійне «я веду BDF». Обидві мають діяти
+ * одночасно, тому вони й лишились двома окремими перевірками.
+ */
+function inScope(groupType) {
+  const k = scopeKind();
+  return !k || groupType === k;
 }
 
 /** Чи проходить авто крізь вибраний фільтр. Без фільтра — проходить усе. */
@@ -1622,7 +1679,7 @@ function renderKalendarz() {
 
   const fromKey = fmtDateInput(from), toKey = fmtDateInput(to);
   allData.forEach(sh => {
-    if (!passesGroup(sh.truck)) return;
+    if (!passesGroup(sh.truck) || !inScope(sh.group_type)) return;
     // Зміна може зачепити дві доби — тоді вона лягає в обидві.
     // Нічний доїзд 20:00 → 07:00 це два робочі дні, а не один.
     const keys = shiftDayKeys(sh).filter(k => k >= fromKey && k <= toKey);
@@ -2233,7 +2290,7 @@ function renderTable() {
 
   let drivers = latestAll.filter(s => !riding.has(dKey(s)));
   // Фільтр по групі машин діє першим — решта рахується вже всередині неї
-  drivers = drivers.filter(s => passesGroup(s.truck));
+  drivers = drivers.filter(s => passesGroup(s.truck) && inScope(s.group_type));
   if (dashFilter.status === 'active') drivers = drivers.filter(s => s.status === 'active');
   if (dashFilter.status === 'idle')   drivers = drivers.filter(s => s.status !== 'active');
   // В базі група BDF досі лежить як 'DHL' — стара назва, перейменована лише в UI
@@ -2260,7 +2317,7 @@ function renderTable() {
   const truckByShiftKpi = {};
   allData.forEach(s => {
     truckByShiftKpi[s.id] = s.truck;
-    if (!passesGroup(s.truck)) return;
+    if (!passesGroup(s.truck) || !inScope(s.group_type)) return;
     if (new Date(s.created_at) < from) return;
     if (s.start_km == null || s.end_km == null) return;
     const d = s.end_km - s.start_km;
@@ -2631,6 +2688,10 @@ const ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
    Тема ставиться на <html>, тому діє і на модалки, і на PDF-панель.
    Вибір особистий: у localStorage браузера, не в базі. */
 function applyTheme(t) {
+  // tca_theme лишається в браузері: його читає маленький скрипт у <head>
+  // ще до малювання сторінки, інакше при світлій темі блимав би чорний
+  // екран. Справжнє джерело правди — налаштування в акаунті.
+  localStorage.setItem('tca_theme', t);
   if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
   else document.documentElement.removeAttribute('data-theme');
   const b = document.getElementById('btn-theme');
@@ -2640,8 +2701,9 @@ function applyTheme(t) {
 
 function toggleTheme() {
   const now = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-  localStorage.setItem('tca_theme', now);
   applyTheme(now);
+  prefs.theme = now;
+  savePrefs();
 }
 
 applyTheme(localStorage.getItem('tca_theme') || 'dark');
@@ -2659,9 +2721,17 @@ let dashStarted = false;
 
 // Запити й таймери не стартують, поки немає сесії — інакше сторінка
 // довбала б базу помилками ще на екрані логіну.
-function startDashboard() {
+async function startDashboard() {
   if (dashStarted) return;
   dashStarted = true;
+
+  // Налаштування читаємо ДО першого малювання: інакше диспетчер, який
+  // веде BDF, на секунду побачив би всю фірму, а KPI встигли б
+  // порахуватись по чужих даних.
+  await loadPrefs();
+  if (prefs.view && VIEWS.includes(prefs.view) && prefs.view !== 'drivers') {
+    setView(prefs.view);
+  }
   setInterval(updateTimers, 60000);
   updateClock();
   setInterval(updateClock, 20000);
@@ -3598,7 +3668,8 @@ function renderKierowcy() {
   const g = document.getElementById('k-group').value;
   const act = document.getElementById('k-active').value;
 
-  let rows = Object.values(buildFleet().drivers).filter(r => passesGroup(r.truck));
+  let rows = Object.values(buildFleet().drivers)
+    .filter(r => passesGroup(r.truck) && inScope(r.group));
   if (g) rows = rows.filter(r => r.group === g);
   // За замовчуванням показуємо тих, хто працює. Звільнені нікуди не
   // зникають — вони під фільтром, разом зі своїми змінами й звітами.
@@ -3799,7 +3870,8 @@ function renderAuta() {
   const q = (document.getElementById('a-search').value || '').trim().toLowerCase();
   const g = document.getElementById('a-group').value;
 
-  let rows = Object.values(buildFleet().trucks).filter(r => passesGroup(r.truck));
+  let rows = Object.values(buildFleet().trucks)
+    .filter(r => passesGroup(r.truck) && inScope(r.group));
   if (g) rows = rows.filter(r => r.group === g);
   rows = rows.filter(r => fleetSearchHit(q, [r.truck, r.key, ...r.drivers]));
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.truck.localeCompare(b.truck));
@@ -3907,9 +3979,15 @@ function renderNaczepy() {
   const st = document.getElementById('n-status').value;
   const cg = document.getElementById('n-cargo').value;
 
-  // Причіп належить групі через авто, яким його возять
-  let rows = Object.values(buildFleet().trailers)
-    .filter(r => passesGroup(r.lastRow && r.lastRow.truck));
+  // Причіп належить групі через авто, яким його возять — і рід роботи
+  // теж береться звідти: у самого причепа групи немає.
+  const fleetForScope = buildFleet();
+  let rows = Object.values(fleetForScope.trailers)
+    .filter(r => {
+      const tr = r.lastRow && r.lastRow.truck;
+      const truckRow = fleetForScope.trucks[plateKey(tr)];
+      return passesGroup(tr) && inScope(truckRow && truckRow.group);
+    });
   if (st === 'busy') rows = rows.filter(r => r.active);
   if (st === 'free') rows = rows.filter(r => !r.active);
   if (cg === 'loaded')  rows = rows.filter(r => (r.lastRow || {}).cargo === 'loaded');
@@ -4078,6 +4156,176 @@ async function saveFleet() {
   await loadData();
   const skipped = Object.keys(seen).length - fresh.length;
   alert('Dodano: ' + fresh.length + (skipped ? ('\nPominięto (już były): ' + skipped) : ''));
+}
+
+/* ===================== USTAWIENIA DYSPOZYTORA =====================
+
+   Різні диспетчери ведуть різні напрямки: один BDF, другий Ogólną.
+   Кожному потрібен свій набір даних на екрані, і налаштувати його треба
+   раз, а не щоранку.
+
+   ФІЛЬТР І ОБЛАСТЬ — РІЗНІ РЕЧІ, і плутати їх небезпечно. Чипи під
+   картою це фільтр: «покажи мені зараз тільки завантажені», його ставлять
+   і знімають по десять разів на день. Область — це «BDF моя частина
+   фірми», її ставлять раз і забувають. Саме тому область завжди видно
+   міткою біля заголовка: інакше водій з чужої групи зникне з екрана
+   разом зі своєю проблемою, і ніхто не помітить.
+
+   Зберігається в акаунті (db/ustawienia.sql), а не в браузері: у
+   диспетчерів уже є справжні логіни, тому налаштування переживає чистку
+   кешу, йде за людиною на інший комп'ютер і не перемішується, якщо двоє
+   сядуть за один.
+   ------------------------------------------------------------------ */
+
+async function loadPrefs() {
+  try {
+    const { data: u } = await db.auth.getUser();
+    if (!u || !u.user) return;
+    const { data, error } = await db
+      .from('dispatcher_prefs')
+      .select('prefs')
+      .eq('user_id', u.user.id)
+      .maybeSingle();
+    // Таблиці ще немає (db/ustawienia.sql не запущений) — працюємо на
+    // тому, що лежить у браузері. Нічого не ламається.
+    if (error) { console.warn('prefs niedostępne:', error.message); return; }
+    if (data && data.prefs) {
+      prefs = data.prefs;
+      localStorage.setItem('tca_prefs', JSON.stringify(prefs));
+    }
+  } catch (e) {
+    console.warn('prefs:', e);
+  }
+  applyPrefs();
+}
+
+async function savePrefs() {
+  localStorage.setItem('tca_prefs', JSON.stringify(prefs));
+  applyPrefs();
+  try {
+    const { data: u } = await db.auth.getUser();
+    if (!u || !u.user) return;
+    const { error } = await db
+      .from('dispatcher_prefs')
+      .upsert({ user_id: u.user.id, prefs, updated_at: new Date().toISOString() },
+              { onConflict: 'user_id' });
+    if (error) console.warn('prefs zapis:', error.message);
+  } catch (e) {
+    console.warn('prefs zapis:', e);
+  }
+}
+
+/** Область у вигляді, зрозумілому решті коду. '' — уся фірма. */
+function scopeKind() {
+  return prefs.kind === 'DHL' || prefs.kind === 'Ogólna' ? prefs.kind : '';
+}
+
+function applyPrefs() {
+  applyTheme(prefs.theme || 'dark');
+
+  const tag = document.getElementById('scope-tag');
+  if (tag) {
+    const k = scopeKind();
+    const g = (prefs.group && fleetGroups.find(x => x.id === prefs.group)) || null;
+    const bits = [];
+    if (k) bits.push(k === 'DHL' ? 'BDF' : 'Ogólna');
+    if (g) bits.push(g.name);
+    tag.hidden = bits.length === 0;
+    tag.textContent = bits.length ? 'Widok: ' + bits.join(' · ') : '';
+  }
+
+  // Область по групі машин ділить те саме поле, що й тимчасовий фільтр:
+  // два різні джерела для одного питання дали б суперечливі списки.
+  if (prefs.group && fleetGroups.some(x => x.id === prefs.group)) {
+    activeGroupId = prefs.group;
+  }
+}
+
+/** Клік по мітці знімає звуження — найшвидший спосіб побачити все. */
+function clearScope() {
+  prefs.kind = '';
+  prefs.group = '';
+  activeGroupId = '';
+  localStorage.setItem('tca_group_filter', '');
+  savePrefs();
+  renderGroupBar();
+  renderTable();
+  renderFleet();
+  renderMap();
+}
+
+function openPrefs() {
+  const k = scopeKind();
+  const groups = fleetGroups.map(g =>
+    `<span class="prefs-chip ${prefs.group === g.id ? 'on' : ''}"
+           onclick="pickPref('group', '${g.id}')">${esc(g.name)}</span>`).join('');
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'prefs-modal';
+  back.onclick = closePrefs;
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>Moje ustawienia</h3>
+
+      <label>Mój obszar — rodzaj</label>
+      <div class="prefs-row">
+        <span class="prefs-chip ${!k ? 'on' : ''}" onclick="pickPref('kind', '')">Wszystko</span>
+        <span class="prefs-chip ${k === 'DHL' ? 'on' : ''}" onclick="pickPref('kind', 'DHL')">BDF</span>
+        <span class="prefs-chip ${k === 'Ogólna' ? 'on' : ''}" onclick="pickPref('kind', 'Ogólna')">Ogólna</span>
+      </div>
+
+      ${fleetGroups.length ? `
+      <label style="margin-top:14px">Mój obszar — grupa aut</label>
+      <div class="prefs-row">
+        <span class="prefs-chip ${!prefs.group ? 'on' : ''}" onclick="pickPref('group', '')">Wszystkie</span>
+        ${groups}
+      </div>` : ''}
+
+      <div class="cal-note" style="margin-top:12px">
+        Obszar działa wszędzie: liczniki u góry, lista kierowców, Kierowcy,
+        Auta, Naczepy, Kalendarz i mapa. Zawężenie widać zawsze przy tytule —
+        żeby nikt nie zniknął z ekranu niezauważony.
+      </div>
+
+      <label style="margin-top:16px">Motyw</label>
+      <div class="prefs-row">
+        <span class="prefs-chip ${(prefs.theme || 'dark') === 'dark' ? 'on' : ''}" onclick="pickPref('theme', 'dark')">Ciemny</span>
+        <span class="prefs-chip ${prefs.theme === 'light' ? 'on' : ''}" onclick="pickPref('theme', 'light')">Jasny</span>
+      </div>
+
+      <label style="margin-top:16px">Zakładka po zalogowaniu</label>
+      <div class="prefs-row">
+        ${VIEWS.map(v =>
+          `<span class="prefs-chip ${(prefs.view || 'drivers') === v ? 'on' : ''}"
+                 onclick="pickPref('view', '${v}')">${esc(VIEW_TITLES[v])}</span>`).join('')}
+      </div>
+
+      <div class="modal-actions"><span class="spacer"></span>
+        <button class="btn btn-primary" onclick="closePrefs()">Gotowe</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+}
+
+function closePrefs() {
+  const el = document.getElementById('prefs-modal');
+  if (el) el.remove();
+}
+
+function pickPref(key, value) {
+  prefs[key] = value;
+  if (key === 'group') {
+    activeGroupId = value;
+    localStorage.setItem('tca_group_filter', value);
+  }
+  savePrefs();
+  renderGroupBar();
+  renderTable();
+  renderFleet();
+  renderMap();
+  closePrefs();
+  openPrefs();
 }
 
 /* ---- eksport do arkusza ----
@@ -4260,6 +4508,7 @@ function lastPositions() {
   allData.forEach(sh => {
     const key = dKey(sh);
     const name = driverName(key, sh.driver_name);
+    if (!inScope(sh.group_type)) return;
     put(key, name, sh.start_time || sh.created_at, sh.start_lat, sh.start_lon,
         'Start zmiany', sh.truck);
     if (sh.end_time) {
