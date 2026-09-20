@@ -377,6 +377,9 @@
   .pin { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
          font-size: 15px; letter-spacing: 2px; color: var(--text); }
   .pin-none { color: var(--muted); font-size: 12px; }
+  /* Жовтий, а не червоний: це привід подивитись, а не аварія. Червоне
+     в цьому інтерфейсі означає статус, і плутати їх не можна. */
+  .gap-km { color: var(--yellow); font-weight: bold; cursor: help; }
   .row-off { opacity: .55; }
   .row-acts { white-space: nowrap; text-align: right; }
   .row-acts .btn { padding: 4px 9px; font-size: 12px; }
@@ -843,10 +846,11 @@
           <th>Ostatnia zmiana</th>
           <th>Zmian</th>
           <th>Km razem</th>
+          <th>Luka w liczniku</th>
           <th>Paliwo (ten miesiąc)</th>
         </tr>
       </thead>
-      <tbody id="a-body"><tr><td colspan="9" class="loading">Ładowanie...</td></tr></tbody>
+      <tbody id="a-body"><tr><td colspan="10" class="loading">Ładowanie...</td></tr></tbody>
     </table>
   </div>
   <div class="hint-box">
@@ -3349,6 +3353,12 @@ function driverName(key, fallback) {
   return (c && c.name) || fallback || '—';
 }
 
+/* Нижче цього розриву мовчимо. Водій округлює лічильник, дивиться на
+   нього крізь кермо й помиляється на кілька кілометрів — щодня. Кричати
+   про кожні 3 км означало б, що на колонку перестануть дивитись зовсім,
+   і справжні пропажі втопляться в шумі. 20 км — це вже не описка. */
+const ODO_GAP_MIN_KM = 20;
+
 /** Зводить зміни, картки водіїв і причепи в три списки для вкладок. */
 function buildFleet() {
   const drivers = {}, trucks = {}, trailers = {};
@@ -3375,7 +3385,8 @@ function buildFleet() {
     if (!trucks[key]) {
       trucks[key] = { key, truck: String(num).trim(), group: '', shifts: 0, km: 0, liters: 0,
                       last: null, lastShift: null, drivers: new Set(),
-                      lastTrailer: null, trailerAt: null };
+                      lastTrailer: null, trailerAt: null,
+                      gapKm: 0, gaps: [] };
     }
     return trucks[key];
   }
@@ -3460,6 +3471,36 @@ function buildFleet() {
       a.number = String(t.trailer_number).trim();   // найсвіжіше написання номера
     }
     if (!t.released_at) a.active = t;
+  });
+
+  // 4b. РОЗРИВ У ЛІЧИЛЬНИКУ.
+  //
+  //     Найдешевша річ у всьому дашборді: дані вже лежать у базі, треба
+  //     тільки порівняти сусідні зміни. Якщо попередня зміна на цій
+  //     машині закінчилась на 540 200, а наступна почалась із 540 540 —
+  //     між ними 340 км, які машина проїхала поза будь-якою зміною.
+  //
+  //     Це або забута зміна, або поїздка, про яку ніхто не звітував.
+  //     Досі цього не бачив ніхто.
+  //
+  //     Дрібні розбіжності ігноруємо: водій округлює лічильник, дивиться
+  //     на нього крізь кермо й помиляється на кілька кілометрів. Поріг
+  //     нижче — про те, що вважати помилкою ока, а що поїздкою.
+  Object.values(trucks).forEach(t => {
+    const list = allData
+      .filter(sh => plateKey(sh.truck) === t.key
+                 && sh.start_km != null && sh.end_km != null)
+      .sort((a, b) => ts(a.start_time || a.created_at) - ts(b.start_time || b.created_at));
+
+    t.gapKm = 0;
+    t.gaps = [];
+    for (let i = 1; i < list.length; i++) {
+      const gap = list[i].start_km - list[i - 1].end_km;
+      if (gap > ODO_GAP_MIN_KM) {
+        t.gapKm += gap;
+        t.gaps.push({ km: gap, at: list[i].start_time || list[i].created_at });
+      }
+    }
   });
 
   // 5. Довідник: машини й причепи, які завів диспетчер.
@@ -3731,7 +3772,7 @@ function renderAuta() {
   document.getElementById('a-count').textContent = 'Aut: ' + rows.length;
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="9" class="loading">Żadne auto nie przeszło jeszcze przez aplikację.</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" class="loading">Żadne auto nie przeszło jeszcze przez aplikację.</td></tr>';
     return;
   }
 
@@ -3773,9 +3814,27 @@ function renderAuta() {
       <td class="num">${fmtDay(r.last)}</td>
       <td class="num">${r.shifts}</td>
       <td class="num">${r.km ? r.km + ' km' : '—'}</td>
+      <td class="num">${gapCell(r)}</td>
       <td class="num">${r.liters ? r.liters.toFixed(0) + ' L' : '—'}</td>
     </tr>`;
   }).join('');
+}
+
+/**
+ * Кілометри, які машина проїхала поза змінами.
+ *
+ * Показуємо разом із кількістю випадків: одна діра на 600 км і шість
+ * по 30 — це різні історії. Перша схожа на забуту зміну, друга на
+ * систему.
+ */
+function gapCell(r) {
+  if (!r.gapKm) return '<span class="dash">—</span>';
+  const when = r.gaps
+    .slice(-3)
+    .map(g => new Date(g.at).toLocaleDateString('pl-PL') + ': ' + g.km + ' km')
+    .join('\n');
+  return `<span class="gap-km" title="${esc(when)}">${r.gapKm} km</span>`
+    + `<span class="cell-sub">${r.gaps.length} ${r.gaps.length === 1 ? 'raz' : 'razy'}</span>`;
 }
 
 /**
