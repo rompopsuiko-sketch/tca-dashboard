@@ -1602,12 +1602,16 @@ function renderKalendarz() {
     // Нічний доїзд 20:00 → 07:00 це два робочі дні, а не один.
     const keys = shiftDayKeys(sh).filter(k => k >= fromKey && k <= toKey);
     if (!keys.length) return;
-    const r = row(sh);
-    keys.forEach(k => { (r.days[k] = r.days[k] || []).push(sh); });
-    // Кілометри додаємо один раз на зміну, а не на кожен її день
-    if (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km) {
-      r.km += sh.end_km - sh.start_km;
-    }
+    // Робочий день у екіпажі — робочий в обох. Платять обом.
+    [sh, coDriverOf(sh)].forEach(src => {
+      if (!src || !dKey(src)) return;
+      const r = row(src);
+      keys.forEach(k => { (r.days[k] = r.days[k] || []).push(sh); });
+      // Кілометри додаємо один раз на зміну, а не на кожен її день
+      if (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km) {
+        r.km += sh.end_km - sh.start_km;
+      }
+    });
   });
 
   allDelegations.forEach(dl => {
@@ -2194,7 +2198,15 @@ function formatDuration(ms) {
 function renderTable() {
   const latestAll = getLatestPerDriver(allData);
 
-  let drivers = latestAll;
+  // Хто просто зараз їде напарником. Такий водій не має отримати ще й
+  // власний рядок зі своєї минулої сольної зміни: диспетчер бачив би
+  // його одночасно "W trasie" в чужому рядку й "Nieaktywny" у своєму.
+  const riding = new Set();
+  allData.forEach(sh => {
+    if (sh.status === 'active' && sh.codriver_id) riding.add(sh.codriver_id);
+  });
+
+  let drivers = latestAll.filter(s => !riding.has(dKey(s)));
   // Фільтр по групі машин діє першим — решта рахується вже всередині неї
   drivers = drivers.filter(s => passesGroup(s.truck));
   if (dashFilter.status === 'active') drivers = drivers.filter(s => s.status === 'active');
@@ -2209,8 +2221,12 @@ function renderTable() {
     });
   }
 
-  document.getElementById('total').textContent = drivers.length;
-  document.getElementById('active').textContent = drivers.filter(d => d.status === 'active').length;
+  // Рядок екіпажу — це двоє людей, тому в лічильнику він рахується як двоє.
+  const crewExtra = drivers.filter(s => s.codriver_id).length;
+  document.getElementById('total').textContent = drivers.length + crewExtra;
+  document.getElementById('active').textContent =
+    drivers.filter(d => d.status === 'active').length
+    + drivers.filter(d => d.status === 'active' && d.codriver_id).length;
   document.getElementById('onbreak').textContent = drivers.filter(d => d.status === 'finished').length;
 
   // Кілометри за поточний місяць — по всіх змінах, а не тільки по останніх
@@ -2266,7 +2282,11 @@ function renderTable() {
 
     const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''} ${fresh ? 'row-new' : ''}" onclick="toggleDetail('${s.id}')">
       <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(name)}</div>
-        <div><div>${esc(name)}${activityChip(key)}</div>${delegationTag(s)}</div>
+        <div><div>${esc(name)}${activityChip(key)}</div>
+        ${s.codriver_name
+          ? `<span class="cell-sub">+ ${esc(driverName(s.codriver_id, s.codriver_name))}</span>`
+          : ''}
+        ${delegationTag(s)}</div>
       </div></td>
       <td>${esc(s.truck)}</td>
       <td>${trailerCell(s)}</td>
@@ -2539,7 +2559,14 @@ function renderTimeline(shift, items) {
     </div>`;
   }).join('');
 
-  return `<div class="tl-title">ZDARZENIA ZMIANY · ${day} · od najnowszych</div>${rows}`;
+  // Хто був у кабіні — у шапці стрічки. Без цього подвійний екіпаж
+  // читався б як звичайна зміна, а це різні гроші й різні години.
+  const crew = shift.codriver_name
+    ? ` · załoga: ${esc(driverName(shift.driver_id, shift.driver_name))}`
+      + ` + ${esc(driverName(shift.codriver_id, shift.codriver_name))}`
+    : '';
+
+  return `<div class="tl-title">ZDARZENIA ZMIANY · ${day}${crew} · od najnowszych</div>${rows}`;
 }
 
 function toggleMore(id) {
@@ -2885,10 +2912,12 @@ function buildDelegationSection(shifts, delegations, range) {
 
 async function generateWorkPDF(driverId, range) {
   const name = driverName(driverId, '');
+  // or(...) — бо в подвійному екіпажі зміна записана на телефон одного
+  // з двох. Для звіту це однаково його робочий день.
   const { data: shifts } = await db
     .from('shifts')
     .select('*')
-    .eq('driver_id', driverId)
+    .or(`driver_id.eq.${driverId},codriver_id.eq.${driverId}`)
     .gte('created_at', range.fromISO)
     .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
@@ -2959,8 +2988,15 @@ async function generateWorkPDF(driverId, range) {
       const km = (s.start_km && s.end_km) ? s.end_km - s.start_km : 0;
       truckKm += km;
 
+      // Подвійний екіпаж треба бачити у звіті: це та сама траса, але
+      // двоє людей, і години нараховуються кожному. Показуємо того, кого
+      // в цьому звіті немає — тобто напарника цього водія.
+      const mate = s.codriver_id
+        ? (s.codriver_id === driverId ? s.driver_name : s.codriver_name)
+        : '';
+
       rows += `<tr style="background:${bg}">
-        <td>${date}</td>
+        <td>${date}${mate ? `<br><span style="font-size:10px;color:#555">załoga: ${mate}</span>` : ''}</td>
         <td>${s.start_city || '—'}</td>
         <td>${s.end_city || '—'}</td>
         <td>${startTime}</td>
@@ -3289,6 +3325,20 @@ function dKey(row) {
 }
 
 /**
+ * Напарник у подвійному екіпажі, як «рядок водія» для решти коду.
+ *
+ * Зміна в екіпажі одна на двох — саме тому кілометри машини рахуються
+ * раз, а не двічі. Але другий водій не має через це зникнути зі звітів:
+ * у нього ті самі години, ті самі дні поза домом і та сама оплата.
+ * Тому скрізь, де ми рахуємо водіїв, зміна зараховується обом.
+ */
+function coDriverOf(sh) {
+  return sh && sh.codriver_id
+    ? { driver_id: sh.codriver_id, driver_name: sh.codriver_name }
+    : null;
+}
+
+/**
  * Ім'я для показу. Беремо з картки водія, а не з рядка зміни: диспетчер
  * міг виправити помилку в написанні, і тоді списки мають показувати
  * виправлене. У стрічці подій і в PDF навпаки лишається те, що записав
@@ -3307,6 +3357,7 @@ function buildFleet() {
   // такого в базі бути не може, а якщо раптом є — хай краще випаде з
   // таблиці, ніж приклеїться до чужого водія.
   function driverAgg(src) {
+    if (!src) return null;
     const key = dKey(src);
     if (!key) return null;
     if (!drivers[key]) {
@@ -3354,20 +3405,24 @@ function buildFleet() {
     const km = (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km)
       ? sh.end_km - sh.start_km : 0;
 
-    const a = driverAgg(sh);
-    if (a) {
+    // Зміна зараховується обом: водієві й напарникові. Кілометри теж —
+    // це та сама траса, яку вони проїхали разом. У машини вони при цьому
+    // не подвоюються: рядок один, і в truckAgg нижче він теж один.
+    [driverAgg(sh), driverAgg(coDriverOf(sh))].forEach(a => {
+      if (!a) return;
       a.shifts++; a.km += km;
       if (!a.last || at > a.last) {
         a.last = at; a.lastShift = sh;
         a.truck = sh.truck || a.truck;
         a.group = sh.group_type || a.group;
       }
-    }
+    });
     if (sh.truck) {
       const t = truckAgg(sh.truck);
       if (t) {
         t.shifts++; t.km += km;
         if (sh.driver_name) t.drivers.add(driverName(dKey(sh), sh.driver_name));
+        if (sh.codriver_name) t.drivers.add(driverName(sh.codriver_id, sh.codriver_name));
         if (!t.last || at > t.last) {
           t.last = at; t.lastShift = sh;
           t.group = sh.group_type || t.group;
