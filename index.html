@@ -271,10 +271,14 @@
   .tl-photos img { width: 78px; height: 78px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
   .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
   .loading { text-align: center; color: var(--muted); padding: 40px; font-size: 16px; }
-  select, input[type="date"], input[type="text"] {
+  select, input[type="date"], input[type="text"], textarea {
     padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
     background: var(--card); color: var(--text); font-size: 14px;
   }
+  /* Вставка цілого списку номерів: моноширинний, щоб було видно, що
+     кожен номер стоїть у своєму рядку, і не злипались нулі з літерою O. */
+  textarea { width: 100%; resize: vertical; font-family: ui-monospace, Consolas, monospace;
+             letter-spacing: 1px; line-height: 1.6; }
   .report-panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 20px; max-width: 760px; }
   .rp-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   .rp-row:last-child { margin-bottom: 0; }
@@ -359,6 +363,14 @@
   .fleet-bar input[type="text"] { min-width: 220px; }
   .fleet-count { color: var(--muted); font-size: 13px; margin-left: auto; }
   .cell-sub { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+  /* PIN диктують по телефону — моноширинний шрифт і розрідження, щоб
+     шість цифр не зливались і не читались із помилкою. */
+  .pin { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+         font-size: 15px; letter-spacing: 2px; color: var(--text); }
+  .pin-none { color: var(--muted); font-size: 12px; }
+  .row-off { opacity: .55; }
+  .row-acts { white-space: nowrap; text-align: right; }
+  .row-acts .btn { padding: 4px 9px; font-size: 12px; }
   .link { color: var(--blue); text-decoration: none; }
   .link:hover { text-decoration: underline; }
   .dash { color: var(--muted); }
@@ -761,13 +773,20 @@
       <option value="DHL">BDF</option>
       <option value="Ogólna">Ogólna</option>
     </select>
+    <select id="k-active" onchange="renderKierowcy()">
+      <option value="yes">Pracujący</option>
+      <option value="no">Zwolnieni</option>
+      <option value="">Wszyscy</option>
+    </select>
     <span class="fleet-count" id="k-count">—</span>
+    <button class="btn btn-primary" onclick="openDriverModal()">+ Dodaj kierowcę</button>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
           <th>Kierowca</th>
+          <th>PIN</th>
           <th>Telefon</th>
           <th>WhatsApp / Telegram</th>
           <th>Auto</th>
@@ -776,14 +795,19 @@
           <th>Ostatnia zmiana</th>
           <th>Zmian</th>
           <th>Km razem</th>
+          <th></th>
         </tr>
       </thead>
-      <tbody id="k-body"><tr><td colspan="9" class="loading">Ładowanie...</td></tr></tbody>
+      <tbody id="k-body"><tr><td colspan="11" class="loading">Ładowanie...</td></tr></tbody>
     </table>
   </div>
   <div class="hint-box">
-    Kontakt wpisuje sam kierowca w aplikacji: zakładka <b>Profil</b> → <b>Kontakt</b>.<br>
-    Lista buduje się z tego, co przeszło przez aplikację — kto się logował i kto jeździł.
+    Kierowcę zakładasz tutaj — dostaje sześciocyfrowy <b>PIN</b>, który wpisuje w aplikacji.
+    Nazwisko jest tylko podpisem: wszystkie zmiany, tankowania i naczepy trzymają się
+    jego numeru w bazie, a nie tego, jak ktoś wpisał imię.<br>
+    <b>Zwolniony</b> nie znika — traci tylko wejście do aplikacji, a jego zmiany zostają w raportach.
+    Jego PIN nigdy nie trafi do nikogo innego.<br>
+    Telefon i komunikator wpisuje sam kierowca: zakładka <b>Profil</b> → <b>Kontakt</b>.
   </div>
 </div>
 
@@ -796,6 +820,7 @@
       <option value="Ogólna">Ogólna</option>
     </select>
     <span class="fleet-count" id="a-count">—</span>
+    <button class="btn btn-primary" onclick="openFleetModal('trucks')">+ Dodaj auta</button>
   </div>
   <div class="table-wrap">
     <table>
@@ -816,8 +841,11 @@
     </table>
   </div>
   <div class="hint-box">
-    Na razie są tu tylko auta, które kierowcy wpisali przy logowaniu.
-    Pełną flotę wgramy później, gdy będzie lista numerów.
+    Lista łączy dwa źródła: auta, które wpisałeś tutaj, i te, które kierowcy
+    dopisali sami przy logowaniu — takie mają podpis <b>z aplikacji</b>.
+    Numer bez wpisu w spisie oznaczony jest jako <b>spoza listy</b>:
+    kliknij <b>Do listy</b>, żeby go uznać.<br>
+    Przez „Dodaj auta” możesz wkleić od razu całą flotę — jeden numer w każdej linii.
   </div>
 </div>
 
@@ -836,6 +864,7 @@
       <option value="unknown">Bez statusu</option>
     </select>
     <span class="fleet-count" id="n-count">—</span>
+    <button class="btn btn-primary" onclick="openFleetModal('trailers')">+ Dodaj naczepy</button>
   </div>
   <div class="table-wrap">
     <table>
@@ -1017,9 +1046,12 @@ function renderDashFilters() {
 }
 let mediaObjects = null;   // null = zakładka Media jeszcze nie wczytana
 let mediaLoading = false;
-let activeTrailers = {};   // driver_name -> причіп, який зараз закріплений
+let activeTrailers = {};   // drivers.id -> причіп, який зараз закріплений
+// Ті самі рядки списком, без зведення по водієві. Потрібні вкладці Auta:
+// там причіп шукається по машині, і зведення по імені там тільки заважає.
+let activeTrailerRows = [];
 let openShiftId = null;    // яка зміна розгорнута в стрічку подій
-let lastActivity = {};     // driver_name -> { at, what } — остання дія водія
+let lastActivity = {};     // drivers.id -> { at, what, name } — остання дія водія
 let seenActivity = loadSeen();  // що диспетчер уже переглянув
 let notifList = [];             // що зараз показано в списку під дзвіночком
 let allDelegations = [];        // виїзди з дому, для вкладки Kalendarz
@@ -1027,7 +1059,18 @@ let calMonth = null;            // місяць, відкритий у кале�
 const ACTIVITY_WINDOW_H = 48;   // глибина, на яку взагалі дивимось активність
 let fleetGroups = [];      // групи машин, які диспетчер зібрав сам
 let activeGroupId = localStorage.getItem('tca_group_filter') || '';  // вибраний фільтр
-let driverCards = {};      // name -> рядок з таблиці drivers (контакти водія)
+let driverCards = {};      // drivers.id -> картка водія (ім'я, контакти, is_active)
+// Довідник флоти: plate_key -> рядок з public.trucks / public.trailers.
+// Це список, який веде диспетчер, а не те, що назбиралось зі змін. Тому
+// машина з'являється у вкладці Auta ще до того, як на ній хтось поїхав,
+// а списана не зникає з історії, лише більше не пропонується водієві.
+let fleetReg = { trucks: {}, trailers: {} };
+
+// drivers.id -> діючий PIN. Приходить окремою функцією, бо сама таблиця
+// закрита навіть для читання: у drivers заглядає ще й застосунок, і список
+// усіх PIN-ів лежав би тоді в кожному телефоні. Не диспетчер отримає
+// порожньо — тоді в колонці PIN просто буде прочерк.
+let driverPins = {};
 let allTrailers = [];      // уся історія причепів — під вкладку Naczepy
 
 // Екранування тексту, який вводить водій (номер причепа, uwagi, adres).
@@ -1107,21 +1150,17 @@ async function loadDataInner() {
     .is('released_at', null);
 
   activeTrailers = {};
+  activeTrailerRows = trError ? [] : (trData || []);
   if (trError) {
     // Таблиці ще нема (не запущено naczepy.sql) — колонка просто буде порожня
     console.warn('trailers_log niedostępne:', trError.message);
   } else {
-    // Ключ — зведене ім'я, як і в підсвітці активності: інакше водій,
-    // записаний десь із зайвим пробілом, показувався б як Solo при
-    // причепленому причепі.
-    //
-    // Але саме через ці два написання на одного водія могло висіти два
-    // активні рядки (унікальний індекс у базі дивиться на сирий текст і
-    // такого не ловить). Раніше тут перемагав той, що прийшов останнім,
-    // тобто випадковий: дашборд показував торішній номер, поки застосунок
-    // показував свіжий. Тепер завжди виграє останній підчеплений.
+    // Ключ — driver_id. На імені тут колись висів цілий баг: на одного
+    // водія могло бути два активні рядки (два написання імені проходили
+    // повз унікальний індекс), і дашборд показував випадковий із них.
+    // Найсвіжіший за taken_at лишаємо як запобіжник.
     (trData || []).forEach(t => {
-      const key = driverKey(t.driver_name);
+      const key = dKey(t);
       const have = activeTrailers[key];
       if (!have || ts(t.taken_at) > ts(have.taken_at)) activeTrailers[key] = t;
     });
@@ -1138,7 +1177,27 @@ async function loadDataInner() {
 
   driverCards = {};
   if (drvError) console.warn('drivers niedostępne:', drvError.message);
-  else (drvData || []).forEach(d => { driverCards[d.name] = d; });
+  else (drvData || []).forEach(d => { driverCards[d.id] = d; });
+
+  // Довідник машин і причепів. Якщо db/flota.sql ще не запущений —
+  // списки лишаються порожні, а вкладки працюють як раніше, з того,
+  // що назбиралось зі змін.
+  const [trRes, tlRes] = await Promise.all([
+    db.from('trucks').select('*'),
+    db.from('trailers').select('*'),
+  ]);
+  fleetReg = { trucks: {}, trailers: {} };
+  if (trRes.error) console.warn('trucks niedostępne:', trRes.error.message);
+  else (trRes.data || []).forEach(r => { fleetReg.trucks[r.plate_key] = r; });
+  if (tlRes.error) console.warn('trailers niedostępne:', tlRes.error.message);
+  else (tlRes.data || []).forEach(r => { fleetReg.trailers[r.plate_key] = r; });
+
+  // Діючі PIN-и. Помилка тут нічого не ламає: db/kierowcy_pin.sql міг бути
+  // ще не запущений, або дивиться не диспетчер.
+  const { data: pinData, error: pinError } = await db.rpc('driver_pins_active');
+  driverPins = {};
+  if (pinError) console.warn('PIN-y niedostępne:', pinError.message);
+  else (pinData || []).forEach(r => { driverPins[r.driver_id] = r.pin; });
 
   // Уся історія причепів під вкладку Naczepy. Активні причепи лишаємо
   // окремим запитом вище — той завжди свіжий і не залежить від ліміту.
@@ -1171,9 +1230,9 @@ async function loadDataInner() {
   // повернеться порожньо — підсвітка просто врахує менше джерел.
   const actSince = new Date(Date.now() - ACTIVITY_WINDOW_H * 3600 * 1000).toISOString();
   const [evRes, fuRes, cmrRes] = await Promise.all([
-    db.from('events').select('driver_name, event_type, started_at, ended_at').gte('started_at', actSince),
-    db.from('fuels').select('driver_name, liters, created_at').gte('created_at', actSince),
-    db.from('cmr').select('driver_name, created_at').gte('created_at', actSince),
+    db.from('events').select('driver_id, driver_name, event_type, started_at, ended_at').gte('started_at', actSince),
+    db.from('fuels').select('driver_id, driver_name, liters, created_at').gte('created_at', actSince),
+    db.from('cmr').select('driver_id, driver_name, created_at').gte('created_at', actSince),
   ]);
   buildActivity(evRes.data, fuRes.data, cmrRes.data);
 
@@ -1306,10 +1365,10 @@ function shiftDayKeys(sh) {
 const STALE_DELEGATION_DAYS = 3;
 
 /** Остання зміна водія (за часом старту), або null. */
-function lastShiftOf(driverKeyName) {
+function lastShiftOf(key) {
   let best = null;
   allData.forEach(s => {
-    if (driverKey(s.driver_name) !== driverKeyName) return;
+    if (dKey(s) !== key) return;
     const t = new Date(s.end_time || s.start_time || s.created_at);
     if (isNaN(t)) return;
     if (!best || t > best.at) best = { at: t, shift: s };
@@ -1322,7 +1381,7 @@ function openDelegations() {
   return allDelegations
     .filter(d => !d.ended_at)
     .map(d => {
-      const key = driverKey(d.driver_name);
+      const key = dKey(d);
       const last = lastShiftOf(key);
       const days = Math.round(
         (dayStart(new Date()) - dayStart(d.started_at)) / 86400000) + 1;
@@ -1330,7 +1389,7 @@ function openDelegations() {
         ? Math.round((dayStart(new Date()) - dayStart(last.at)) / 86400000)
         : days;
       return {
-        id: d.id, name: key, raw: d,
+        id: d.id, key: key, name: driverName(key, d.driver_name), raw: d,
         days: days,
         quietDays: quietDays,
         lastAt: last ? last.at : null,
@@ -1354,7 +1413,7 @@ function renderOpenDelegations() {
 
   const list = openDelegations().filter(d => {
     // Той самий фільтр груп, що й у решті дашборда
-    const last = lastShiftOf(d.name);
+    const last = lastShiftOf(d.key);
     return passesGroup(d.raw.truck) || (last && passesGroup(last.shift.truck));
   });
 
@@ -1438,9 +1497,9 @@ async function saveCloseDelegation(id) {
 }
 
 /** Підпис "W delegacji: N dni" під іменем водія на головному екрані. */
-function delegationTag(rawName) {
-  const key = driverKey(rawName);
-  const d = openDelegations().find(x => x.name === key);
+function delegationTag(row) {
+  const key = dKey(row);
+  const d = openDelegations().find(x => x.key === key);
   if (!d) return '';
   const cls = d.stale ? 'del-tag del-tag-warn' : 'del-tag';
   const tip = d.stale
@@ -1518,9 +1577,12 @@ function renderKalendarz() {
 
   // --- збираємо рядки ---
   const rows = {};
-  function row(rawName) {
-    const key = driverKey(rawName);
-    if (!rows[key]) rows[key] = { key: key, name: key, days: {}, away: new Set(), km: 0 };
+  function row(src) {
+    const key = dKey(src);
+    if (!rows[key]) {
+      rows[key] = { key: key, name: driverName(key, src.driver_name),
+                    days: {}, away: new Set(), km: 0 };
+    }
     return rows[key];
   }
 
@@ -1531,7 +1593,7 @@ function renderKalendarz() {
     // Нічний доїзд 20:00 → 07:00 це два робочі дні, а не один.
     const keys = shiftDayKeys(sh).filter(k => k >= fromKey && k <= toKey);
     if (!keys.length) return;
-    const r = row(sh.driver_name);
+    const r = row(sh);
     keys.forEach(k => { (r.days[k] = r.days[k] || []).push(sh); });
     // Кілометри додаємо один раз на зміну, а не на кожен її день
     if (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km) {
@@ -1540,7 +1602,7 @@ function renderKalendarz() {
   });
 
   allDelegations.forEach(dl => {
-    const key = driverKey(dl.driver_name);
+    const key = dKey(dl);
     // Водій лишається, якщо вже пройшов фільтр по змінах. Порожнє авто
     // в делегації — не привід викидати його з календаря.
     if (!rows[key] && !passesGroup(dl.truck)) return;
@@ -1549,7 +1611,7 @@ function renderKalendarz() {
     const lo = a < from ? from : a;
     const hi = b > to ? to : b;
     if (hi < lo) return;
-    const r = row(dl.driver_name);
+    const r = row(dl);
     for (let d = lo; d <= hi; d = addDays(d, 1)) r.away.add(fmtDateInput(d));
   });
 
@@ -1888,39 +1950,40 @@ function buildActivity(events, fuels, cmrs) {
   const since = Date.now() - ACTIVITY_WINDOW_H * 3600 * 1000;
   const soon = Date.now() + 60000;   // захист від кривого годинника на телефоні
 
-  // Ключ — ім'я, зведене driverKey(). У базі той самий водій може лежати
-  // і як 'Roman Popsuiko', і як 'Roman Popsuiko ' з пробілом у кінці.
-  // Без зведення він рахувався двічі, а другу позначку не було чим погасити:
-  // рядок у таблиці один, і клік по ньому гасив тільки одне написання.
-  function bump(driver, at, what) {
-    const key = driverKey(driver);
+  // Ключ — driver_id рядка. Раніше тут стояло ім'я, і той самий водій,
+  // записаний десь із зайвим пробілом, рахувався за двох: рядок у таблиці
+  // один, клік по ньому гасив одне написання, а друга позначка висіла вічно.
+  // Ім'я кладемо поруч — воно потрібне списку в дзвіночку.
+  function bump(row, at, what) {
+    const key = dKey(row);
     if (!key || !at) return;
     const t = ts(at).getTime();
     if (!t || t < since || t > soon) return;
     const cur = lastActivity[key];
-    if (!cur || t > ts(cur.at).getTime()) lastActivity[key] = { at, what };
+    if (!cur || t > ts(cur.at).getTime()) {
+      lastActivity[key] = { at, what, name: driverName(key, row.driver_name) };
+    }
   }
 
   allData.forEach(s => {
-    bump(s.driver_name, s.start_time || s.created_at, 'Start zmiany');
-    if (s.end_time) bump(s.driver_name, s.end_time, 'Koniec zmiany');
+    bump(s, s.start_time || s.created_at, 'Start zmiany');
+    if (s.end_time) bump(s, s.end_time, 'Koniec zmiany');
   });
   (events || []).forEach(e => {
-    bump(e.driver_name, e.started_at, e.event_type);
-    if (e.ended_at) bump(e.driver_name, e.ended_at, 'Koniec ' + e.event_type);
+    bump(e, e.started_at, e.event_type);
+    if (e.ended_at) bump(e, e.ended_at, 'Koniec ' + e.event_type);
   });
   (fuels || []).forEach(f => {
-    bump(f.driver_name, f.created_at, 'Tankowanie' + (f.liters ? ' ' + f.liters + ' L' : ''));
+    bump(f, f.created_at, 'Tankowanie' + (f.liters ? ' ' + f.liters + ' L' : ''));
   });
-  (cmrs || []).forEach(c => bump(c.driver_name, c.created_at, 'Zdjęcie CMR'));
+  (cmrs || []).forEach(c => bump(c, c.created_at, 'Zdjęcie CMR'));
   allTrailers.forEach(t => {
-    bump(t.driver_name, t.taken_at, 'Naczepa ' + (t.trailer_number || '') + ' podpięta');
-    if (t.released_at) bump(t.driver_name, t.released_at, 'Naczepa oddana');
+    bump(t, t.taken_at, 'Naczepa ' + (t.trailer_number || '') + ' podpięta');
+    if (t.released_at) bump(t, t.released_at, 'Naczepa oddana');
   });
 }
 
-function isNewActivity(driver) {
-  const key = driverKey(driver);
+function isNewActivity(key) {
   const a = lastActivity[key];
   if (!a) return false;
   const seen = seenActivity[key];
@@ -1929,8 +1992,7 @@ function isNewActivity(driver) {
 
 /** Водія переглянули — запам'ятовуємо саме час дії, а не "зараз",
     інакше подія, що прийшла під час перегляду, зникла б непоміченою. */
-function markSeen(driver) {
-  const key = driverKey(driver);
+function markSeen(key) {
   const a = lastActivity[key];
   if (!a) return;
   seenActivity[key] = a.at;
@@ -1947,7 +2009,8 @@ function markAllSeen() {
 function newActivityList() {
   return Object.keys(lastActivity)
     .filter(isNewActivity)
-    .map(d => ({ driver: d, at: lastActivity[d].at, what: lastActivity[d].what }))
+    .map(d => ({ key: d, name: lastActivity[d].name,
+                 at: lastActivity[d].at, what: lastActivity[d].what }))
     .sort((a, b) => ts(b.at) - ts(a.at));
 }
 
@@ -1978,7 +2041,7 @@ function renderNotif(list) {
     const t = ts(a.at).toLocaleString('pl-PL',
       { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     return `<button class="notif-item" onclick="openFromNotif(${i})">
-      <b>${esc(a.driver)}</b>
+      <b>${esc(a.name)}</b>
       <span>${esc(a.what)} · ${t}</span>
     </button>`;
   }).join('');
@@ -2010,11 +2073,10 @@ document.addEventListener('click', closeNotif);
 function openFromNotif(i) {
   const item = notifList[i];
   if (!item) return;
-  const driver = item.driver;
-  markSeen(driver);
+  markSeen(item.key);
   closeNotif();
   setView('drivers');
-  const row = getLatestPerDriver(allData).find(x => driverKey(x.driver_name) === driver);
+  const row = getLatestPerDriver(allData).find(x => dKey(x) === item.key);
   openShiftId = row ? row.id : openShiftId;
   renderTable();
   const el = document.querySelector('tr.row-main.open');
@@ -2034,9 +2096,9 @@ function updateClock() {
 }
 
 /** Чип із назвою останньої дії, який видно тільки поки її не переглянули. */
-function activityChip(driver) {
-  if (!isNewActivity(driver)) return '';
-  const a = lastActivity[driverKey(driver)];
+function activityChip(key) {
+  if (!isNewActivity(key)) return '';
+  const a = lastActivity[key];
   const time = ts(a.at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
   return `<span class="act-chip">⚡ ${esc(a.what)} · ${time}</span>`;
 }
@@ -2051,9 +2113,8 @@ function initials(name) {
 function getLatestPerDriver(data) {
   const map = {};
   data.forEach(s => {
-    // Ключ нормалізований: інакше 'Roman Popsuiko' і 'Roman Popsuiko '
-    // дають два рядки на одного водія
-    const key = driverKey(s.driver_name);
+    const key = dKey(s);
+    if (!key) return;
     if (!map[key]) map[key] = s;
   });
   return Object.values(map);
@@ -2079,9 +2140,9 @@ function getStatus(shift) {
   return { text: '🟢 W trasie', cls: 'status-active' };
 }
 
-function calcPauseUsage(driverName) {
+function calcPauseUsage(key) {
   const driverShifts = allData
-    .filter(s => s.driver_name === driverName && s.start_time)
+    .filter(s => dKey(s) === key && s.start_time)
     .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
 
   let used = 0;
@@ -2134,7 +2195,7 @@ function renderTable() {
   if (dashFilter.kind === 'ogolna')   drivers = drivers.filter(s => s.group_type === 'Ogólna');
   if (dashFilter.cargo) {
     drivers = drivers.filter(s => {
-      const t = activeTrailers[driverKey(s.driver_name)];
+      const t = activeTrailers[dKey(s)];
       return !!t && t.cargo === dashFilter.cargo;
     });
   }
@@ -2181,7 +2242,9 @@ function renderTable() {
     const endTime = s.end_time
       ? new Date(s.end_time).toLocaleTimeString('pl-PL', opts)
       : '—';
-    const shortPauses = calcPauseUsage(s.driver_name);
+    const key = dKey(s);
+    const name = driverName(key, s.driver_name);
+    const shortPauses = calcPauseUsage(key);
     const pauseCls = shortPauses > 3 ? 'style="color:#d32f2f;font-weight:bold"' : '';
 
     const timerInfo = getTimerInfo(s);
@@ -2190,11 +2253,11 @@ function renderTable() {
       : '';
 
     const isOpen = s.id === openShiftId;
-    const fresh = isNewActivity(s.driver_name);
+    const fresh = isNewActivity(key);
 
     const mainRow = `<tr class="row-main ${isOpen ? 'open' : ''} ${fresh ? 'row-new' : ''}" onclick="toggleDetail('${s.id}')">
-      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(s.driver_name)}</div>
-        <div><div>${esc(s.driver_name)}${activityChip(s.driver_name)}</div>${delegationTag(s.driver_name)}</div>
+      <td><div class="who"><span class="chev">▶</span><div class="ava">${initials(name)}</div>
+        <div><div>${esc(name)}${activityChip(key)}</div>${delegationTag(s)}</div>
       </div></td>
       <td>${esc(s.truck)}</td>
       <td>${trailerCell(s)}</td>
@@ -2227,7 +2290,7 @@ function renderTable() {
 // Колонка "Naczepa". Для Ogólna без причепа пишемо Solo,
 // для BDF прочерк — ця група причепи не веде.
 function trailerCell(s) {
-  const t = activeTrailers[driverKey(s.driver_name)];
+  const t = activeTrailers[dKey(s)];
   if (t) {
     const warn = t.taken_front ? '' : '<span class="trailer-nophoto">brak zdjęć</span>';
     // Стан вантажу другим рядком під номером. Порожній рядок, якщо статусу
@@ -2243,7 +2306,7 @@ function trailerCell(s) {
 function toggleDetail(shiftId) {
   // Розгорнув рядок — значить подивився, що там сталось
   const row = allData.find(s => s.id === shiftId);
-  if (row) markSeen(row.driver_name);
+  if (row) markSeen(dKey(row));
   openShiftId = (openShiftId === shiftId) ? null : shiftId;
   renderTable();
 }
@@ -2290,7 +2353,7 @@ async function loadTimeline(shiftId) {
     db.from('fuels').select('*').eq('shift_id', shiftId),
     db.from('cmr').select('*').eq('shift_id', shiftId),
     db.from('trailers_log').select('*')
-      .in('driver_name', nameVariants(shift.driver_name))
+      .eq('driver_id', shift.driver_id)
       .order('taken_at', { ascending: false }).limit(20),
   ]);
 
@@ -2609,15 +2672,19 @@ function setReportType(type) {
   document.getElementById('rt-fuel').classList.toggle('active', type === 'fuel');
 }
 
-// Список водіїв беремо з уже завантажених змін.
-// Вибір зберігаємо — інакше авто-оновлення раз на 30с скидало б його.
+// Список водіїв беремо з картотеки, а не зі змін: звіт за відпрацьоване
+// потрібен і звільненому, і тому, хто ще жодної зміни не закрив.
+// У value лежить id — тезки більше не склеюються в один рядок звіту.
+// Вибір зберігаємо: авто-оновлення раз на 30с скидало б його.
 function fillReportDrivers() {
   const sel = document.getElementById('rp-driver');
   const prev = sel.value;
-  const names = [...new Set(allData.map(s => driverKey(s.driver_name)).filter(Boolean))].sort();
+  const list = Object.values(driverCards)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   sel.innerHTML = '<option value="">— wybierz kierowcę —</option>' +
-    names.map(n => `<option value="${n}">${n}</option>`).join('');
-  if (names.includes(prev)) sel.value = prev;
+    list.map(d => `<option value="${esc(d.id)}">${esc(d.name)}`
+      + (d.is_active === false ? ' (nieaktywny)' : '') + '</option>').join('');
+  if (list.some(d => d.id === prev)) sel.value = prev;
 }
 
 // YYYY-MM-DD у локальному часі. Через toISOString не можна —
@@ -2807,11 +2874,12 @@ function buildDelegationSection(shifts, delegations, range) {
     ${summary}`;
 }
 
-async function generateWorkPDF(name, range) {
+async function generateWorkPDF(driverId, range) {
+  const name = driverName(driverId, '');
   const { data: shifts } = await db
     .from('shifts')
     .select('*')
-    .in('driver_name', nameVariants(name))
+    .eq('driver_id', driverId)
     .gte('created_at', range.fromISO)
     .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
@@ -2836,7 +2904,7 @@ async function generateWorkPDF(name, range) {
   const { data: delRows } = await db
     .from('delegations')
     .select('*')
-    .in('driver_name', nameVariants(name))
+    .eq('driver_id', driverId)
     .lte('started_at', range.toISO)
     .order('started_at', { ascending: true });
 
@@ -2963,11 +3031,12 @@ async function generateWorkPDF(name, range) {
 
 // Окремий звіт тільки по заправках: скільки, коли, на якому авто
 // і середнє спалювання між заправками.
-async function generateFuelPDF(name, range) {
+async function generateFuelPDF(driverId, range) {
+  const name = driverName(driverId, '');
   const { data: fuels } = await db
     .from('fuels')
     .select('*')
-    .in('driver_name', nameVariants(name))
+    .eq('driver_id', driverId)
     .gte('created_at', range.fromISO)
     .lte('created_at', range.toISO)
     .order('created_at', { ascending: true });
@@ -3193,39 +3262,51 @@ function plateKey(v) {
 }
 
 /**
- * Те саме для імені водія: зайвий пробіл у кінці робив з одного водія двох —
- * у одного були контакти й нуль змін, у другого всі зміни й жодного контакту.
- * Регістр лишаємо, бо ім'я показується як є.
+ * Ключ водія в усіх списках дашборда. Це drivers.id, а не ім'я.
+ *
+ * Раніше тут зводились написання одного імені: 'Roman Popsuiko' і
+ * 'Roman Popsuiko ' з пробілом у кінці були двома різними водіями — у
+ * одного контакти й нуль змін, у другого всі зміни й жодного контакту.
+ * Тепер водія заводить диспетчер, і кожен рядок несе його id. Зайвий
+ * пробіл більше нічого не значить, а двоє справжніх однофамільців
+ * нарешті лишаються двома різними людьми.
+ *
+ * Рядок без driver_id дає порожній ключ — такого в базі бути не може
+ * (колонка not null), але хай краще він випаде зі списку, ніж злиється
+ * з чужим водієм.
  */
-function driverKey(v) {
-  return String(v || '').trim().replace(/\s+/g, ' ');
+function dKey(row) {
+  return row ? String(row.driver_id || '') : '';
 }
 
 /**
- * Усі написання одного імені, які реально лежать у базі.
- * Потрібно, поки db/naprawa_imion.sql не запущений: старі зміни можуть
- * бути записані як 'Roman Popsuiko ' з пробілом, нові — вже без нього.
- * Звіт по одному написанню загубив би половину змін, тому шукаємо по всіх.
+ * Ім'я для показу. Беремо з картки водія, а не з рядка зміни: диспетчер
+ * міг виправити помилку в написанні, і тоді списки мають показувати
+ * виправлене. У стрічці подій і в PDF навпаки лишається те, що записав
+ * застосунок тоді — це вже історичний документ.
  */
-function nameVariants(name) {
-  const key = driverKey(name);
-  const set = new Set([name, key]);
-  allData.forEach(s => { if (driverKey(s.driver_name) === key) set.add(s.driver_name); });
-  return [...set].filter(Boolean);
+function driverName(key, fallback) {
+  const c = driverCards[key];
+  return (c && c.name) || fallback || '—';
 }
 
 /** Зводить зміни, картки водіїв і причепи в три списки для вкладок. */
 function buildFleet() {
   const drivers = {}, trucks = {}, trailers = {};
 
-  function driverAgg(rawName) {
-    const name = driverKey(rawName);
-    if (!drivers[name]) {
-      drivers[name] = { name, group: '', truck: '', phone: '', messenger: '',
-                        messengerType: '',
-                        shifts: 0, km: 0, last: null, lastShift: null };
+  // Ключ — drivers.id. Порожній ключ (рядок без driver_id) пропускаємо:
+  // такого в базі бути не може, а якщо раптом є — хай краще випаде з
+  // таблиці, ніж приклеїться до чужого водія.
+  function driverAgg(src) {
+    const key = dKey(src);
+    if (!key) return null;
+    if (!drivers[key]) {
+      drivers[key] = { key, name: driverName(key, src.driver_name),
+                       group: '', truck: '', phone: '', messenger: '',
+                       messengerType: '', active: true,
+                       shifts: 0, km: 0, last: null, lastShift: null };
     }
-    return drivers[name];
+    return drivers[key];
   }
   // Ключ — нормалізований номер, у полі truck лишається людський вигляд.
   function truckAgg(num) {
@@ -3233,14 +3314,20 @@ function buildFleet() {
     if (!key) return null;
     if (!trucks[key]) {
       trucks[key] = { key, truck: String(num).trim(), group: '', shifts: 0, km: 0, liters: 0,
-                      last: null, lastShift: null, drivers: new Set() };
+                      last: null, lastShift: null, drivers: new Set(),
+                      lastTrailer: null, trailerAt: null };
     }
     return trucks[key];
   }
 
-  // 1. Картки водіїв — сюди потрапляють навіть ті, хто ще жодної зміни не робив
+  // 1. Картки водіїв — сюди потрапляють навіть ті, хто ще жодної зміни не робив.
+  //    Тепер це взагалі головне джерело списку: водія заводить диспетчер,
+  //    і в таблиці він з'являється ще до першого логіну.
   Object.values(driverCards).forEach(d => {
-    const a = driverAgg(d.name);
+    const a = driverAgg({ driver_id: d.id, driver_name: d.name });
+    if (!a) return;
+    a.name = d.name || a.name;
+    a.active = d.is_active !== false;
     a.phone = d.phone || '';
     a.messenger = d.messenger || '';
     a.messengerType = d.messenger_type || '';
@@ -3258,8 +3345,8 @@ function buildFleet() {
     const km = (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km)
       ? sh.end_km - sh.start_km : 0;
 
-    if (sh.driver_name) {
-      const a = driverAgg(sh.driver_name);
+    const a = driverAgg(sh);
+    if (a) {
       a.shifts++; a.km += km;
       if (!a.last || at > a.last) {
         a.last = at; a.lastShift = sh;
@@ -3271,7 +3358,7 @@ function buildFleet() {
       const t = truckAgg(sh.truck);
       if (t) {
         t.shifts++; t.km += km;
-        if (sh.driver_name) t.drivers.add(sh.driver_name);
+        if (sh.driver_name) t.drivers.add(driverName(dKey(sh), sh.driver_name));
         if (!t.last || at > t.last) {
           t.last = at; t.lastShift = sh;
           t.group = sh.group_type || t.group;
@@ -3311,6 +3398,49 @@ function buildFleet() {
     if (!t.released_at) a.active = t;
   });
 
+  // 5. Довідник: машини й причепи, які завів диспетчер.
+  //
+  //    Саме те місце, про яке йшлося в коментарі вище — «коли з'явиться
+  //    повна база флоти, достатньо підмішати ще одне джерело». Машина
+  //    потрапляє в список навіть з нулем змін: її щойно купили, або вона
+  //    стоїть у сервісі, і диспетчеру треба бачити, що вона взагалі є.
+  Object.values(fleetReg.trucks).forEach(r => {
+    if (r.is_active === false) return;
+    const t = truckAgg(r.plate);
+    if (t) { t.reg = r; if (!t.shifts && r.group_type) t.group = r.group_type; }
+  });
+  Object.values(fleetReg.trailers).forEach(r => {
+    if (r.is_active === false) return;
+    const key = r.plate_key;
+    if (!trailers[key]) {
+      trailers[key] = { key, number: String(r.plate).trim(),
+                        cycles: 0, photos: 0, active: null, last: null, lastRow: null };
+    }
+    trailers[key].reg = r;
+  });
+
+  // 6. Який причіп за якою машиною.
+  //
+  //    Саме ЗА МАШИНОЮ, а не за водієм. Раніше вкладка Auta брала причіп
+  //    останнього водія цієї машини — і той самий номер висів одразу на
+  //    всіх машинах, на яких водій колись їздив. У рядку trailers_log
+  //    записане авто, тому тут дивимось тільки на нього.
+  //
+  //    Активні рядки додаємо окремо: allTrailers обрізаний лімітом 500,
+  //    а причіп міг висіти закріпленим ще з-за цієї межі.
+  [...allTrailers, ...activeTrailerRows].forEach(t => {
+    const tk = plateKey(t.truck);
+    const a = tk ? trucks[tk] : null;
+    if (!a) return;
+    const at = new Date(t.taken_at).getTime();
+    // Перемагає найсвіжіший рядок — навіть якщо він уже закритий:
+    // причіп здали, отже зараз за машиною не висить нічого.
+    if (a.trailerAt == null || at > a.trailerAt) {
+      a.trailerAt = at;
+      a.lastTrailer = t;
+    }
+  });
+
   return { drivers, trucks, trailers };
 }
 
@@ -3326,26 +3456,53 @@ function renderKierowcy() {
   if (!body) return;
   const q = (document.getElementById('k-search').value || '').trim().toLowerCase();
   const g = document.getElementById('k-group').value;
+  const act = document.getElementById('k-active').value;
 
   let rows = Object.values(buildFleet().drivers).filter(r => passesGroup(r.truck));
   if (g) rows = rows.filter(r => r.group === g);
-  rows = rows.filter(r => fleetSearchHit(q, [r.name, r.truck, r.phone, r.messenger]));
+  // За замовчуванням показуємо тих, хто працює. Звільнені нікуди не
+  // зникають — вони під фільтром, разом зі своїми змінами й звітами.
+  if (act === 'yes') rows = rows.filter(r => r.active);
+  if (act === 'no')  rows = rows.filter(r => !r.active);
+  rows = rows.filter(r => fleetSearchHit(q, [r.name, r.truck, r.phone, r.messenger,
+                                             driverPins[r.key]]));
   rows.sort((a, b) => (b.last || 0) - (a.last || 0) || a.name.localeCompare(b.name));
 
   document.getElementById('k-count').textContent = 'Kierowców: ' + rows.length;
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="9" class="loading">Nikogo tu jeszcze nie ma.</td></tr>';
+    body.innerHTML = '<tr><td colspan="11" class="loading">'
+      + 'Nikogo tu nie ma. Kliknij "Dodaj kierowcę" — dostanie PIN do aplikacji.'
+      + '</td></tr>';
     return;
   }
 
   body.innerHTML = rows.map(r => {
     const st = r.lastShift ? getStatus(r.lastShift) : null;
-    const stCell = st
-      ? `<span class="${st.cls}">${st.text}</span>`
-      : '<span class="pill pill-idle">Bez zmiany</span>';
-    return `<tr>
+    // У звільненого статус останньої зміни вже ні про що не говорить,
+    // тому його місце займає сам факт звільнення.
+    const stCell = !r.active
+      ? '<span class="pill pill-idle">Zwolniony</span>'
+      : st ? `<span class="${st.cls}">${st.text}</span>`
+           : '<span class="pill pill-idle">Bez zmiany</span>';
+
+    const pin = driverPins[r.key];
+    const pinCell = pin
+      ? `<span class="pin">${esc(pin)}</span>`
+      : '<span class="pin-none">brak</span>';
+
+    // У onclick іде id, а не ім'я: апостроф у прізвищі (O'Brien) зламав би
+    // код прямо в атрибуті, і esc() тут не рятує — браузер декодує &#39;
+    // назад ще до виконання JS. На цьому вже одного разу обпеклись у списку
+    // сповіщень, там довелось передавати номер у масиві.
+    const acts = r.active
+      ? `<button class="btn" onclick="newPin('${r.key}')" title="Wydaj nowy PIN — stary przestanie działać">Nowy PIN</button>
+         <button class="btn" onclick="setDriverActive('${r.key}', false)" title="Kierowca traci wejście do aplikacji, zmiany zostają">Zwolnij</button>`
+      : `<button class="btn" onclick="setDriverActive('${r.key}', true)">Przywróć</button>`;
+
+    return `<tr class="${r.active ? '' : 'row-off'}">
       <td><div class="who"><div class="ava">${initials(r.name)}</div>${esc(r.name)}</div></td>
+      <td>${pinCell}</td>
       <td>${phoneCell(r.phone)}</td>
       <td>${messengerCell(r.messenger, r.messengerType)}</td>
       <td>${esc(r.truck) || '<span class="dash">—</span>'}</td>
@@ -3354,8 +3511,146 @@ function renderKierowcy() {
       <td class="num">${fmtDay(r.last)}</td>
       <td class="num">${r.shifts}</td>
       <td class="num">${r.km ? r.km + ' km' : '—'}</td>
+      <td class="row-acts">${acts}</td>
     </tr>`;
   }).join('');
+}
+
+/* ---- картка водія: завести, видати PIN, звільнити ----
+   Усе тут — права диспетчера. Застосунок водіїв не створює й PIN-ів не
+   бачить: у базі за це відповідають функції driver_pin_set() і
+   driver_pins_active(), обидві з перевіркою is_dispatcher().           */
+
+function openDriverModal() {
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'drv-modal';
+  back.onclick = closeDriverModal;
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>Nowy kierowca</h3>
+
+      <label>Imię i nazwisko</label>
+      <input type="text" id="drv-name" placeholder="Jan Kowalski" autocomplete="off">
+
+      <label style="margin-top:12px">Grupa</label>
+      <select id="drv-group">
+        <option value="Ogólna">Ogólna</option>
+        <option value="DHL">BDF</option>
+      </select>
+
+      <label style="margin-top:12px">Telefon (opcjonalnie)</label>
+      <input type="text" id="drv-phone" placeholder="+48 600 000 000" autocomplete="off">
+
+      <div class="cal-note" style="margin-top:12px">
+        Po zapisaniu kierowca dostanie sześciocyfrowy PIN — podaj mu go,
+        wpisze go raz w aplikacji. Grupę może przy logowaniu zmienić sam.
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeDriverModal()">Anuluj</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="drv-save" onclick="saveDriver()">Zapisz i wydaj PIN</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+  document.getElementById('drv-name').focus();
+}
+
+function closeDriverModal() {
+  const el = document.getElementById('drv-modal');
+  if (el) el.remove();
+}
+
+async function saveDriver() {
+  const name = (document.getElementById('drv-name').value || '').trim().replace(/\s+/g, ' ');
+  if (!name) { alert('Wpisz imię i nazwisko.'); return; }
+
+  const btn = document.getElementById('drv-save');
+  btn.disabled = true;
+
+  const { data, error } = await db.from('drivers').insert({
+    name: name,
+    group_type: document.getElementById('drv-group').value,
+    phone: (document.getElementById('drv-phone').value || '').trim() || null,
+  }).select().single();
+
+  if (error) {
+    btn.disabled = false;
+    // Найчастіша причина — акаунт не позначений як диспетчер. Повідомлення
+    // від Supabase про "row-level security policy" тут нікому не допоможе.
+    alert(/row-level security|permission/i.test(error.message)
+      ? 'Baza nie pozwala zakładać kierowców z tego konta.\n\n'
+        + 'Twoje konto musi być oznaczone jako dyspozytor — zapytanie jest\n'
+        + 'w pliku db/logowanie.sql. Po zmianie wyloguj się i zaloguj ponownie.'
+      : 'Nie udało się zapisać kierowcy: ' + error.message);
+    return;
+  }
+
+  // PIN видається окремим запитом. Якщо він не вдався, водій у базі вже є —
+  // тому не мовчимо, а кажемо прямо: картка створена, PIN треба видати кнопкою.
+  const { data: pin, error: pinErr } = await db.rpc('driver_pin_set', { p_driver: data.id });
+  closeDriverModal();
+  await loadData();
+
+  if (pinErr) {
+    alert('Kierowca zapisany, ale nie udało się wydać PIN-u:\n' + pinErr.message
+      + '\n\nSpróbuj przyciskiem "Nowy PIN" w jego wierszu.');
+    return;
+  }
+  showPin(name, pin);
+}
+
+/** Новий PIN. Старий гасне тієї ж миті, тому питаємо підтвердження. */
+async function newPin(id) {
+  const name = driverName(id, '');
+  if (!confirm('Wydać nowy PIN dla: ' + name + '?\n\n'
+      + 'Stary przestanie działać od razu — jeśli kierowca jest w trasie,\n'
+      + 'nie zaloguje się nim ponownie.')) return;
+
+  const { data: pin, error } = await db.rpc('driver_pin_set', { p_driver: id });
+  if (error) { alert('Nie udało się: ' + error.message); return; }
+  await loadData();
+  showPin(name, pin);
+}
+
+/** PIN показуємо окремим вікном: шість цифр треба переписати або продиктувати. */
+function showPin(name, pin) {
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'pin-modal';
+  back.onclick = () => back.remove();
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>PIN dla: ${esc(name)}</h3>
+      <div style="text-align:center;margin:18px 0">
+        <span class="pin" style="font-size:38px;letter-spacing:8px">${esc(pin)}</span>
+      </div>
+      <div class="cal-note">
+        Kierowca wpisuje te sześć cyfr w aplikacji — raz, przy pierwszym uruchomieniu.
+        PIN widać zawsze w kolumnie <b>PIN</b>, więc nie trzeba go nigdzie zapisywać.
+      </div>
+      <div class="modal-actions"><span class="spacer"></span>
+        <button class="btn btn-primary" onclick="document.getElementById('pin-modal').remove()">OK</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+}
+
+/**
+ * Звільнення й повернення. Рядок водія лишається в базі назавжди:
+ * на його id висять зміни, заправки й делегації за відпрацьоване, а це
+ * години, за які треба платити. Гасне тільки вхід у застосунок.
+ */
+async function setDriverActive(id, active) {
+  const name = driverName(id, '');
+  if (!active && !confirm('Zwolnić: ' + name + '?\n\n'
+      + 'Nie zaloguje się już do aplikacji. Jego zmiany, tankowania i raporty\n'
+      + 'zostają — znajdziesz go pod filtrem "Zwolnieni".')) return;
+
+  const { error } = await db.from('drivers').update({ is_active: active }).eq('id', id);
+  if (error) { alert('Nie udało się: ' + error.message); return; }
+  await loadData();
 }
 
 function renderAuta() {
@@ -3379,18 +3674,37 @@ function renderAuta() {
   body.innerHTML = rows.map(r => {
     const sh = r.lastShift;
     const inRoute = !!sh && sh.status === 'active';
-    const driver = sh ? sh.driver_name : [...r.drivers][0];
-    const at = driver ? activeTrailers[driverKey(driver)] : null;
-    const trailer = at ? at.trailer_number : null;
+    const lastDriver = sh ? driverName(dKey(sh), sh.driver_name) : [...r.drivers][0];
     const others = r.drivers.size > 1 ? `<span class="cell-sub">i jeszcze ${r.drivers.size - 1}</span>` : '';
 
+    // Причіп беремо по машині (див. buildFleet), а не по водієві.
+    const tr = r.lastTrailer;
+    const trailer = tr ? tr.trailer_number : null;
+    const attached = !!tr && !tr.released_at;
+
+    // Вільна машина — це прочерк, а не останній водій чорним по білому.
+    // Інакше диспетчер читає стару зміну як поточну. Хто був останнім,
+    // лишається сірим підписом — інформація корисна, але вона про минуле.
+    const driverCell = inRoute
+      ? esc(lastDriver) + others
+      : '<span class="dash">—</span>' +
+        (lastDriver ? `<span class="cell-sub">ost. ${esc(lastDriver)}</span>` : '');
+
+    // Те саме з причепом: поки він не зданий, показуємо номер;
+    // зданий — прочерк і сірим, що тут стояло востаннє.
+    const trailerCell = !trailer
+      ? '<span class="dash">—</span>'
+      : attached
+        ? `<span class="trailer-num">${esc(trailer)}</span>`
+        : `<span class="dash">—</span><span class="cell-sub">ost. ${esc(trailer)}</span>`;
+
     return `<tr>
-      <td><b>${esc(r.truck)}</b></td>
+      <td><b>${esc(r.truck)}</b>${regNote(r.reg, 'trucks', r.truck)}</td>
       <td>${inRoute
         ? '<span class="pill pill-busy">W trasie</span>'
         : '<span class="pill pill-free">Wolne</span>'}</td>
-      <td>${driver ? esc(driver) + others : '<span class="dash">—</span>'}</td>
-      <td>${trailer ? `<span class="trailer-num">${esc(trailer)}</span>` : '<span class="dash">—</span>'}</td>
+      <td>${driverCell}</td>
+      <td>${trailerCell}</td>
       <td>${groupBadge(r.group)}</td>
       <td class="num">${fmtDay(r.last)}</td>
       <td class="num">${r.shifts}</td>
@@ -3423,7 +3737,7 @@ function cargoPill(cargo, activity, small) {
 function activityByDriver() {
   const map = {};
   getLatestPerDriver(allData).forEach(sh => {
-    map[driverKey(sh.driver_name)] = sh.current_activity || null;
+    map[dKey(sh)] = sh.current_activity || null;
   });
   return map;
 }
@@ -3463,7 +3777,7 @@ function renderNaczepy() {
     const t = r.lastRow || {};
     // "Trwa załadunek" показуємо тільки для закріпленого причепа:
     // у вільного водія поруч немає, і чужа дія його не стосується.
-    const act = r.active ? acts[driverKey(t.driver_name)] : null;
+    const act = r.active ? acts[dKey(t)] : null;
     // Причіп закріплений — показуємо місце підчеплення.
     // Здано — місце, де водій його лишив.
     const place = r.active
@@ -3473,12 +3787,12 @@ function renderNaczepy() {
     const whenLabel = r.active ? 'od ' : '';
 
     return `<tr>
-      <td><span class="trailer-num">${esc(r.number)}</span></td>
+      <td><span class="trailer-num">${esc(r.number)}</span>${regNote(r.reg, 'trailers', r.number)}</td>
       <td>${r.active
         ? '<span class="pill pill-busy">Podpięta</span>'
         : '<span class="pill pill-free">Wolna</span>'}</td>
       <td>${cargoPill(t.cargo, act)}</td>
-      <td>${esc(t.driver_name) || '<span class="dash">—</span>'}</td>
+      <td>${esc(driverName(dKey(t), t.driver_name)) || '<span class="dash">—</span>'}</td>
       <td>${esc(t.truck) || '<span class="dash">—</span>'}</td>
       <td>${place && place !== '—' ? '📍 ' + esc(place) : '<span class="dash">—</span>'}</td>
       <td class="num">${whenLabel}${fmtDayTime(when)}</td>
@@ -3486,6 +3800,126 @@ function renderNaczepy() {
       <td class="num">${r.photos || 0}</td>
     </tr>`;
   }).join('');
+}
+
+/* ---- довідник флоти: звідки взявся цей номер ----
+
+   Три стани, і диспетчеру важливі всі три:
+     нічого        — номер у спісі, заведений тут, усе гаразд
+     "z aplikacji" — водій дописав сам при логіні, варто переглянути
+     "spoza listy" — номер їздить, але в спісі його немає взагалі
+
+   Останній випадок і є той, заради якого це видно: машина возить вантаж,
+   а у флоті її офіційно не існує.                                       */
+
+function regNote(reg, kind, plate) {
+  if (!reg) {
+    return '<span class="cell-sub">spoza listy '
+      + `<a class="link" href="#" onclick="quickAddFleet('${kind}', '${esc(plateKey(plate))}'); return false;">Do listy</a>`
+      + '</span>';
+  }
+  if (reg.source === 'app') return '<span class="cell-sub">z aplikacji</span>';
+  return '';
+}
+
+/** Швидке «визнати» номер, який уже їздить: без модалки, одним кліком. */
+async function quickAddFleet(kind, plateKeyValue) {
+  // Показуємо той вигляд номера, який реально приїхав зі змін
+  const rows = kind === 'trucks'
+    ? Object.values(buildFleet().trucks)
+    : Object.values(buildFleet().trailers);
+  const row = rows.find(r => r.key === plateKeyValue);
+  const plate = row ? (row.truck || row.number) : plateKeyValue;
+
+  const { error } = await db.from(kind).insert({ plate: plate, source: 'dispatcher' });
+  if (error) { alert('Nie udało się dodać: ' + error.message); return; }
+  await loadData();
+}
+
+let fleetModalKind = 'trucks';
+
+/**
+ * Додавання номерів. Поле навмисно багаторядкове: перше, що робить
+ * диспетчер, — заводить одразу всю флоту, а не по одній машині.
+ */
+function openFleetModal(kind) {
+  fleetModalKind = kind;
+  const isTruck = kind === 'trucks';
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'fleet-modal';
+  back.onclick = closeFleetModal;
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>${isTruck ? 'Dodaj auta' : 'Dodaj naczepy'}</h3>
+
+      <label>Numery — jeden w każdej linii</label>
+      <textarea id="fleet-plates" rows="8" spellcheck="false"
+        placeholder="WGM6Y03U&#10;DW 1234A&#10;DWR2360R"></textarea>
+
+      <label style="margin-top:12px">Grupa (opcjonalnie)</label>
+      <select id="fleet-group">
+        <option value="">— bez grupy —</option>
+        <option value="Ogólna">Ogólna</option>
+        <option value="DHL">BDF</option>
+      </select>
+
+      <div class="cal-note" style="margin-top:12px">
+        Numery zapisują się bez spacji i myślników, więc „DW 1234A” i „dw-1234a”
+        to jeden wpis. Te, które już są na liście, zostaną pominięte.
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeFleetModal()">Anuluj</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="fleet-save" onclick="saveFleet()">Zapisz</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+  document.getElementById('fleet-plates').focus();
+}
+
+function closeFleetModal() {
+  const el = document.getElementById('fleet-modal');
+  if (el) el.remove();
+}
+
+async function saveFleet() {
+  const kind = fleetModalKind;
+  const raw = (document.getElementById('fleet-plates').value || '').split('\n');
+  const group = document.getElementById('fleet-group').value || null;
+
+  // Зводимо в межах самої вставки: у списку з пошти той самий номер
+  // цілком може стояти двічі в різному написанні.
+  const seen = {};
+  raw.forEach(line => {
+    const plate = line.trim().toUpperCase().replace(/\s+/g, ' ');
+    const key = plateKey(plate);
+    if (key && !seen[key]) seen[key] = plate;
+  });
+
+  const fresh = Object.keys(seen).filter(k => !fleetReg[kind][k]);
+  if (!fresh.length) {
+    alert(Object.keys(seen).length
+      ? 'Wszystkie te numery już są na liście.'
+      : 'Wpisz choć jeden numer.');
+    return;
+  }
+
+  const btn = document.getElementById('fleet-save');
+  btn.disabled = true;
+  const { error } = await db.from(kind).insert(
+    fresh.map(k => ({ plate: seen[k], group_type: group, source: 'dispatcher' }))
+  );
+  btn.disabled = false;
+
+  if (error) { alert('Nie udało się zapisać: ' + error.message); return; }
+
+  closeFleetModal();
+  await loadData();
+  const skipped = Object.keys(seen).length - fresh.length;
+  alert('Dodano: ' + fresh.length + (skipped ? ('\nPominięto (już były): ' + skipped) : ''));
 }
 
 /* ===================== MEDIA (zdjęcia CMR) ===================== */
