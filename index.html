@@ -2441,8 +2441,15 @@ async function loadTimeline(shiftId) {
   (fu.data || []).forEach(f => {
     items.push({
       at: ts(f.created_at).getTime(), color: '#E3862B',
-      head: `Tankowanie — ${f.liters} L`,
-      detail: `Licznik: ${f.km} km`,
+      head: `Tankowanie — ${f.liters} L`
+        + (f.total ? ` · ${Number(f.total).toFixed(2)} ${esc(f.currency || '')}` : ''),
+      detail: `Licznik: ${f.km} km`
+        // Ціна за літр рахується тут, а не питається у водія: на колонці
+        // він її не запам'ятає, а з суми й літрів вона виходить точно.
+        + (f.total && f.liters
+            ? ` · ${(Number(f.total) / Number(f.liters)).toFixed(2)} ${esc(f.currency || '')}/L`
+            : ''),
+      photos: f.photo_url ? [f.photo_url] : null,
     });
   });
 
@@ -3136,6 +3143,7 @@ async function generateFuelPDF(driverId, range) {
   let grandLiters = 0;
   let grandSpanKm = 0;
   let grandLitersAfterFirst = 0;
+  let grandTotal = 0;
 
   Object.keys(groups).forEach((truck, gi) => {
     const list = groups[truck];
@@ -3143,12 +3151,14 @@ async function generateFuelPDF(driverId, range) {
     let rows = '';
     let truckLiters = 0;
     let litersAfterFirst = 0;
+    let truckTotal = 0;
     let prevKm = null;
 
     list.forEach((f, i) => {
       const liters = parseFloat(f.liters) || 0;
       const km = parseInt(f.km) || 0;
       truckLiters += liters;
+      truckTotal += parseFloat(f.total) || 0;
 
       // Скільки проїхано від попередньої заправки цього авта
       const diff = (prevKm !== null && km > prevKm) ? km - prevKm : null;
@@ -3162,6 +3172,7 @@ async function generateFuelPDF(driverId, range) {
         <td>${d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</td>
         <td>${km ? km + ' km' : '—'}</td>
         <td><b>${liters.toFixed(1)} L</b></td>
+        <td>${f.total ? Number(f.total).toFixed(2) + ' ' + (f.currency || '') : '—'}</td>
         <td>${diff ? diff + ' km' : '—'}</td>
         <td>${l100 ? l100.toFixed(1) + ' L/100km' : '—'}</td>
       </tr>`;
@@ -3177,16 +3188,18 @@ async function generateFuelPDF(driverId, range) {
 
     grandLiters += truckLiters;
     grandSpanKm += spanKm;
+    grandTotal += truckTotal;
     grandLitersAfterFirst += litersAfterFirst;
 
     blocksHtml += `
-      <tr><td colspan="6" style="background:${bg}; font-weight:bold; padding:8px; border-top:2px solid #263238;">
+      <tr><td colspan="7" style="background:${bg}; font-weight:bold; padding:8px; border-top:2px solid #263238;">
         🚛 ${truck} — tankowań: ${list.length}
       </td></tr>
       ${rows}
       <tr style="background:${bg}; font-weight:bold;">
         <td colspan="3" style="text-align:right">Razem dla ${truck}:</td>
         <td>${truckLiters.toFixed(1)} L</td>
+        <td>${truckTotal ? truckTotal.toFixed(2) : '—'}</td>
         <td>${spanKm || '—'} km</td>
         <td>${avg ? avg.toFixed(1) + ' L/100km' : '—'}</td>
       </tr>`;
@@ -3214,13 +3227,14 @@ async function generateFuelPDF(driverId, range) {
   <table>
     <thead><tr>
       <th>Data</th><th>Godzina</th><th>Stan licznika</th>
-      <th>Zatankowano</th><th>Od ost. tankowania</th><th>Spalanie</th>
+      <th>Zatankowano</th><th>Kwota</th><th>Od ost. tankowania</th><th>Spalanie</th>
     </tr></thead>
     <tbody>
       ${blocksHtml}
       <tr class="grand-total">
         <td colspan="3" style="text-align:right">RAZEM (wszystkie auta):</td>
         <td>${grandLiters.toFixed(1)} L</td>
+        <td>${grandTotal ? grandTotal.toFixed(2) : '—'}</td>
         <td>${grandSpanKm || '—'} km</td>
         <td>${grandAvg ? grandAvg.toFixed(1) + ' L/100km' : '—'}</td>
       </tr>
