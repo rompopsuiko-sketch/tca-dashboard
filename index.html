@@ -6,6 +6,10 @@
 <title>FleetLog — Panel dyspozytora</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAFnUlEQVR4nNWYX0xTVxzHf+d3bi+1pcU6WmSDgAFRGPqyLDHLRpawMBN9kLGxbMYQ1EY2WAkTx4PJnhZ94M0ZFzRL3BJJHGbSMHGSrCTuYWbgYtiMI05JFJyiaGfvtbe3956ztFcZBaoViPN8HnvOub/z/f05v19KHA4HiAyC4CAIDoLgIAgOguAgCA6C4CAIDoLgIAgOguAgCA6C4CAIDoLgIAgOguAgCA6C4CAIjpThPsQlkMqTwLMXQAhhjMFziZTJJs55fn4+pXSRxsbHx61gposnS7KUAhCRMbZ3795AILCYRGKMIWJ/f//OnTvj8fgSxpOk/rFFZi+ThPuHhoYqKioWbywajRYXF/t8vubm5lnxZIxRSoPBYCgUsry2sAjMrTAE4Kqqcs4tLy7s6pxzQoimaaqqNjQ0NDU1zbtt/fr1oVDoqQp9dgqhnP3IJgEeZ4ZmZQ55xMIEWC+B9R1ENJJI0n/WTdOklEYiEctK5hpSBBTXD0rZhZyZyVziRMr6e6BRvTZIyGLL14JzLsvywMBAW1ublULkkUcIIZRSTdM455bODDWkpIQ29acevhILX46FL+vhv/S7l5gWtgwvlQBJkq5evcoYmxVMSiljbNOmTfv37zdNM/Nop0Tg5k8fpdm2ZI+GFYR5lzBZu4FAwOVytbS0WMn2xGpOEWBzFdBlXuAskUKEcFPX741yZsCS8ph4YrI8GhsbnU6n3+83DOOJuZQioKj+Z9ntS9w/YQaoDNdOfhi5EiQk04lj8UiSZBhGfX29w+Hw+/2Kojxec8rNpn7dJ+WsAjOeeP+BADe1yd+SCWQ+k8s/RJKkeDy+efPmzs7OXbt2UUpN08xIwL3fj8y7iZsmY2yuG6xanFlt6cY1qw9MJ/SsPXzGKavVWNlfUFDwdCnkLKqRXYWcJ+US5KaujJ0ytXvLljmnW9j0JWaONNaP0+0inTGn02kpsTqApX/uKatpUkoVRbH2ZyrgpY3f2FxuqwaAA8pwvbfhn9ETXYcPBz5pRsSioqKZ3WdsbMzlcuXm5k4rCYfDU1NTlNK5PkbEYDAYjUY555OTkz6fb3qasE5ZXi8sLJRl2WazAUBZWZnb7ba6W9o4OGawYtUbees+8FW+56usz1v3vrd8S3ZOrrXkdrurq6t1XR8eHq6tre3p6eGcb9++vaenxzCMtra2xsZGRVFGRka8Xu+K+fB4PA6Hw5kkFArput7a2rpjxw5VVS9cuOD1ej0ez4YNG6LR6MWLF+vq6o4ePco57+josKw70pASAe3Wee3W+bkibbIc1/WVK/NtNtv3J4NnzpyJavo7de9WVK4rKVl9P6J2dXUBwKe795SVrUWkqqrO6yxKJdM0EXHNmvI7U3ePHEmU3O72jtLSMkIwFov5fHl2u/2H/h9Pnz49PnFz69ZtpaWlTzMLkUQ6zgg8WPUQ13UAOHful0gk8tme3S/m59XU1CCBE98d56bR3t7e3d2tqmrly+V9fX2RyP10xkwz0VIYM0+d6vP7/ceOHdM0rXzt6t7eXkWJAMDw8NDt27dbPm7KdtirqqokCQcHBx//jM4ap+eH2l+Q7O64HqveWPvals+zc7JjMX7p7OHurzu9Xu+21gO+kleRwJ3ro8cPNk9MTCASxuY3STCRzSs8nm2BL30lrwCBO9cuHT/YcuPGDaQY1/XX33y7qv6LnOXLdQNGz3717YF2QpA/rMsFCCAInK1865CzqIbriqJGTeI2gRLC0Qjn5GQbuqFETS4lZljCHjhknmWz8cQomO6DQDjEDUN5wLgtecp84MjiWTaZEw6EqIpqEKfJULLn3P/jkD6yjxD68GFciIDnHgTBQRAcBMFBEBwEwUEQHATBQRAcBMFBEBwEwUEQHATBQRAcBMFBEBwEwUEQHATBQRAc/L8vsFj+BXh4l3xE7IowAAAAAElFTkSuQmCC">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Leaflet із CDN, як і supabase-js вище: файл лишається одним, без
+     власних картинок. Плитки OpenStreetMap — без ключа й без рахунку. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   /* Палітра така сама, як у мобільному застосунку (lib/theme.ts) */
@@ -143,11 +147,23 @@
 
   .map-box {
     background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    padding: 40px 20px; margin-bottom: 20px; text-align: center;
+    padding: 14px; margin-bottom: 20px;
   }
+  .map-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
   .map-title { color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
-  .map-soon { color: var(--accent); font-size: 17px; font-weight: bold; margin-top: 12px; }
-  .map-note { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.6; }
+  .map-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  #map { height: 340px; border-radius: 10px; z-index: 0; }
+  /* Плитки на темній темі сліпуче білі. Не перемальовуємо їх у сірий —
+     дороги й назви мають лишитись читабельними, — а трохи глушимо. */
+  html:not([data-theme="light"]) #map .leaflet-tile { filter: brightness(.72) saturate(.85); }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
+  .leaflet-popup-content b { font-size: 14px; }
+  .map-pin {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    color: #fff; font-size: 10px; font-weight: bold;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
 
   .filters { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
   .btn {
@@ -716,13 +732,16 @@
   </div>
 </div>
 
-<div class="map-box">
-  <div class="map-title">Mapa floty</div>
-  <div class="map-soon">Wkrótce</div>
-  <div class="map-note">
-    Aplikacja zapisuje tylko nazwy miejscowości startu i końca zmiany.<br>
-    Do mapy na żywo potrzebne są współrzędne zapisywane w tle.
+<!-- Мапа останніх точок. Постійного трекінгу немає й не планується —
+     координати пишуться тільки в момент дії (старт, фініш, załadunek,
+     причіп). Тому це «де машину бачили востаннє», а не «де вона зараз»,
+     і підпис під мапою каже це прямо. -->
+<div class="map-box" id="map-box">
+  <div class="map-head">
+    <span class="map-title">Mapa floty</span>
+    <span class="map-note" id="map-info">—</span>
   </div>
+  <div id="map"></div>
 </div>
 
 <!-- Фільтри списку водіїв. Кожна ознака — свій ряд чипів, усередині
@@ -1251,6 +1270,7 @@ async function loadDataInner() {
 
   renderTable();
   renderFleet();
+  renderMap();
   if (!document.getElementById('view-kalendarz').hidden) renderKalendarz();
   if (mediaObjects !== null) buildMediaDriverOptions();
   document.getElementById('footer').textContent =
@@ -4045,6 +4065,123 @@ async function saveFleet() {
   alert('Dodano: ' + fresh.length + (skipped ? ('\nPominięto (już były): ' + skipped) : ''));
 }
 
+/* ===================== MAPA FLOTY =====================
+
+   Постійного трекінгу немає й не планується — це свідоме рішення, а не
+   недоробка. Координати пишуться тільки в момент дії: старт і фініш
+   зміни, załadunek, rozładunek, підчеплення й здача причепа.
+
+   Тому мапа чесно каже «де машину бачили востаннє», а не «де вона
+   зараз». Для диспетчера це майже те саме: між двома діями фура їде по
+   трасі, і точніше знання нічого не міняє. Для боса це перший екран, на
+   якому видно всю фірму одночасно.
+   ------------------------------------------------------------------ */
+
+let mapObj = null;
+let mapLayer = null;
+
+/** Остання точка з координатами по кожному водієві, з усіх джерел. */
+function lastPositions() {
+  const byDriver = {};
+
+  function put(key, name, at, lat, lon, what, truck) {
+    if (!key || lat == null || lon == null) return;
+    const t = ts(at).getTime();
+    if (!t) return;
+    const cur = byDriver[key];
+    if (!cur || t > cur.at) {
+      byDriver[key] = { key, name, at: t, lat: Number(lat), lon: Number(lon), what, truck };
+    }
+  }
+
+  allData.forEach(sh => {
+    const key = dKey(sh);
+    const name = driverName(key, sh.driver_name);
+    put(key, name, sh.start_time || sh.created_at, sh.start_lat, sh.start_lon,
+        'Start zmiany', sh.truck);
+    if (sh.end_time) {
+      put(key, name, sh.end_time, sh.end_lat, sh.end_lon, 'Koniec zmiany', sh.truck);
+    }
+  });
+
+  allTrailers.forEach(t => {
+    const key = dKey(t);
+    const name = driverName(key, t.driver_name);
+    put(key, name, t.taken_at, t.taken_lat, t.taken_lon,
+        'Naczepa ' + (t.trailer_number || '') + ' podpięta', t.truck);
+    if (t.released_at) {
+      put(key, name, t.released_at, t.released_lat, t.released_lon, 'Naczepa oddana', t.truck);
+    }
+  });
+
+  return Object.values(byDriver)
+    .filter(p => passesGroup(p.truck))
+    .sort((a, b) => b.at - a.at);
+}
+
+function renderMap() {
+  const box = document.getElementById('map');
+  if (!box || typeof L === 'undefined') return;
+
+  const points = lastPositions();
+  const info = document.getElementById('map-info');
+
+  if (!mapObj) {
+    mapObj = L.map('map', { scrollWheelZoom: false, attributionControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap',
+    }).addTo(mapObj);
+    // Європа, поки нема жодної точки
+    mapObj.setView([51.1, 15.0], 5);
+  }
+
+  if (mapLayer) mapLayer.remove();
+  mapLayer = L.layerGroup().addTo(mapObj);
+
+  if (!points.length) {
+    if (info) info.textContent = 'Brak zapisanych współrzędnych.';
+    return;
+  }
+
+  const now = Date.now();
+  points.forEach(p => {
+    // Свіжа точка — акцент, стара — сіра. Диспетчеру важливо одразу
+    // бачити, на що можна спиратись, а що вчорашнє.
+    const freshH = (now - p.at) / 3600000;
+    const color = freshH < 12 ? 'var(--accent)' : (freshH < 48 ? 'var(--yellow)' : 'var(--muted)');
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="map-pin" style="background:${color}">${esc(initials(p.name))}</div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+    });
+
+    L.marker([p.lat, p.lon], { icon })
+      .bindPopup(
+        `<b>${esc(p.name)}</b><br>` +
+        `${esc(p.truck) || '—'}<br>` +
+        `${esc(p.what)}<br>` +
+        `${fmtDayTime(p.at)}<br>` +
+        `<a href="https://www.google.com/maps?q=${p.lat},${p.lon}" target="_blank" rel="noopener">otwórz w Google Maps</a>`
+      )
+      .addTo(mapLayer);
+  });
+
+  // Підганяємо межі тільки першого разу: інакше авто-оновлення раз на
+  // 30 секунд смикало б мапу під диспетчером, який щось розглядає.
+  if (!mapObj._fitted) {
+    mapObj.fitBounds(points.map(p => [p.lat, p.lon]), { padding: [40, 40], maxZoom: 9 });
+    mapObj._fitted = true;
+  }
+
+  if (info) {
+    const newest = points[0];
+    info.textContent = `Ostatnie znane pozycje (${points.length}) · `
+      + `najświeższa: ${fmtDayTime(newest.at)} · aplikacja zapisuje punkt przy każdym zdarzeniu, nie na żywo`;
+  }
+}
+
 /* ===================== MEDIA (zdjęcia CMR) ===================== */
 
 const MEDIA_BUCKET = 'cmr-photos';
@@ -4064,6 +4201,9 @@ function setView(v) {
   document.getElementById('page-title').textContent = VIEW_TITLES[v] || 'Dashboard';
 
   if (v === 'media' && mediaObjects === null) loadMedia();
+  // Leaflet міряє контейнер при створенні. Якщо в той момент вкладка була
+  // схована, мапа думає, що має нульовий розмір, і показує сіру пляму.
+  if (v === 'drivers' && mapObj) setTimeout(() => mapObj.invalidateSize(), 50);
   // Списки флоти будуються з уже завантажених даних — перемальовуємо,
   // щоб вкладка не показувала "Ładowanie", якщо її відкрили вперше.
   if (v === 'kierowcy' || v === 'auta' || v === 'naczepy') renderFleet();
