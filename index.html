@@ -1012,6 +1012,7 @@
     <div class="rp-row">
       <span class="rp-label"></span>
       <button class="btn btn-primary" onclick="runReport()">📄 Generuj PDF</button>
+      <button class="btn" onclick="runCsv()" title="Te same dane w tabeli — do księgowości">⬇ Excel (CSV)</button>
     </div>
   </div>
 </div>
@@ -4077,6 +4078,154 @@ async function saveFleet() {
   await loadData();
   const skipped = Object.keys(seen).length - fresh.length;
   alert('Dodano: ' + fresh.length + (skipped ? ('\nPominięto (już były): ' + skipped) : ''));
+}
+
+/* ---- eksport do arkusza ----
+
+   PDF добрий для людини: його підписують, друкують, кладуть у папку.
+   Бухгалтерія ж рахує в таблиці, і переписувати туди цифри руками з PDF —
+   це найдешевший спосіб зробити помилку в зарплаті.
+
+   Ті самі дані, той самий період, той самий вибір водія — просто інший
+   формат. Нічого нового рахувати не треба, усе вже зібране.             */
+
+/**
+ * CSV, який Excel відкриє правильно з першого разу.
+ *
+ * Дві дрібниці, без яких він цього не зробить:
+ *   sep=;  — перший рядок; інакше польський Excel кладе весь рядок в одну
+ *            комірку, бо чекає крапку з комою, а не кому;
+ *   BOM    — інакше Kowalczyk стає KowalczyÄ‡, і бухгалтерія телефонує.
+ * Числа з комою, а не крапкою — теж заради польської локалі.
+ */
+function downloadCsv(rows, fileName) {
+  const body = rows.map(r => r.map(cell => {
+    const v = cell == null ? '' : String(cell);
+    return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }).join(';')).join('\r\n');
+
+  const blob = new Blob(['\uFEFF' + 'sep=;\r\n' + body], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function num(v, digits) {
+  if (v == null || v === '') return '';
+  return Number(v).toFixed(digits === undefined ? 0 : digits).replace('.', ',');
+}
+
+async function runCsv() {
+  const driverId = document.getElementById('rp-driver').value;
+  if (!driverId) { alert('Wybierz kierowcę.'); return; }
+  const range = getReportRange();
+  if (!range) return;
+
+  const name = driverName(driverId, '');
+  const stamp = fmtDateInput(new Date(range.fromISO)) + '_' + fmtDateInput(new Date(range.toISO));
+
+  if (reportType === 'work') {
+    const { data: shifts } = await db
+      .from('shifts')
+      .select('*')
+      .or(`driver_id.eq.${driverId},codriver_id.eq.${driverId}`)
+      .gte('created_at', range.fromISO)
+      .lte('created_at', range.toISO)
+      .order('created_at', { ascending: true });
+
+    if (!shifts || !shifts.length) { alert('Brak danych dla: ' + name); return; }
+
+    const rows = [[
+      'Data', 'Auto', 'Naczepa', 'Grupa', 'Zaloga',
+      'Start', 'Miejsce startu', 'Licznik start',
+      'Koniec', 'Miejsce konca', 'Licznik koniec',
+      'Kilometry', 'Czas (h)', 'Przerwa', 'Powrot do domu',
+    ]];
+
+    shifts.forEach(sh => {
+      const t0 = ts(sh.start_time || sh.created_at);
+      const t1 = sh.end_time ? ts(sh.end_time) : null;
+      const km = (sh.start_km != null && sh.end_km != null && sh.end_km > sh.start_km)
+        ? sh.end_km - sh.start_km : '';
+      const hours = t1 ? ((t1 - t0) / 3600000) : '';
+      // Напарник у цьому звіті — це той із двох, ким водій НЕ є
+      const mate = sh.codriver_id
+        ? (sh.codriver_id === driverId ? sh.driver_name : sh.codriver_name)
+        : '';
+
+      rows.push([
+        t0.toLocaleDateString('pl-PL'),
+        sh.truck || '',
+        (activeTrailers[dKey(sh)] || {}).trailer_number || '',
+        sh.group_type === 'DHL' ? 'BDF' : (sh.group_type || ''),
+        mate,
+        t0.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }),
+        sh.start_city || '',
+        sh.start_km == null ? '' : sh.start_km,
+        t1 ? t1.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '',
+        sh.end_city || '',
+        sh.end_km == null ? '' : sh.end_km,
+        km,
+        hours === '' ? '' : num(hours, 2),
+        sh.pause_type || '',
+        sh.went_home ? 'TAK' : '',
+      ]);
+    });
+
+    downloadCsv(rows, `karta_pracy_${safeName(name)}_${stamp}.csv`);
+    return;
+  }
+
+  // ---- tankowanie ----
+  const { data: fuels } = await db
+    .from('fuels')
+    .select('*')
+    .eq('driver_id', driverId)
+    .gte('created_at', range.fromISO)
+    .lte('created_at', range.toISO)
+    .order('created_at', { ascending: true });
+
+  if (!fuels || !fuels.length) { alert('Brak tankowań dla: ' + name); return; }
+
+  // Авто в таблиці fuels немає — тягнемо його через зміну, як у PDF
+  const ids = [...new Set(fuels.map(f => f.shift_id).filter(Boolean))];
+  const truckById = {};
+  if (ids.length) {
+    const { data: sh } = await db.from('shifts').select('id, truck').in('id', ids);
+    (sh || []).forEach(x => { truckById[x.id] = x.truck; });
+  }
+
+  const rows = [['Data', 'Godzina', 'Auto', 'Licznik', 'Litry', 'Kwota', 'Waluta', 'Cena/L', 'Paragon']];
+  fuels.forEach(f => {
+    const d = ts(f.created_at);
+    const perL = (f.total && f.liters) ? Number(f.total) / Number(f.liters) : '';
+    rows.push([
+      d.toLocaleDateString('pl-PL'),
+      d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }),
+      truckById[f.shift_id] || '',
+      f.km == null ? '' : f.km,
+      num(f.liters, 1),
+      f.total == null ? '' : num(f.total, 2),
+      f.currency || '',
+      perL === '' ? '' : num(perL, 2),
+      f.photo_url || '',
+    ]);
+  });
+
+  downloadCsv(rows, `tankowanie_${safeName(name)}_${stamp}.csv`);
+}
+
+/** Ім'я у назві файлу: без пробілів і польських літер. */
+function safeName(v) {
+  return String(v || 'kierowca')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ł/g, 'l').replace(/Ł/g, 'L')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '') || 'kierowca';
 }
 
 /* ===================== MAPA FLOTY =====================
