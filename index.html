@@ -4221,7 +4221,10 @@ function scopeKind() {
 }
 
 function applyPrefs() {
-  applyTheme(prefs.theme || 'dark');
+  // Поки в акаунті теми ще немає, беремо ту, що вже стояла в браузері:
+  // інакше диспетчер, який давно сидить на світлій, після цього
+  // оновлення раптом опинився б на темній.
+  applyTheme(prefs.theme || localStorage.getItem('tca_theme') || 'dark');
 
   const tag = document.getElementById('scope-tag');
   if (tag) {
