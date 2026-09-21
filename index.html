@@ -4611,6 +4611,11 @@ function renderMap() {
     }).addTo(mapObj);
     // Європа, поки нема жодної точки
     mapObj.setView([51.1, 15.0], 5);
+    // Leaflet за замовчуванням додає в підпис прапорець України — це не
+    // про мапу, а про позицію самої бібліотеки. Диспетчери тут польські,
+    // прапорець поруч з "OpenStreetMap" виглядає недоречно й випадково.
+    // Лишаємо тільки посилання на Leaflet, без прапорця.
+    mapObj.attributionControl.setPrefix('Leaflet');
   }
 
   if (mapLayer) mapLayer.remove();
