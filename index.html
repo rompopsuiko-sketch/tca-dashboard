@@ -771,6 +771,8 @@
 <div class="map-box" id="map-box">
   <div class="map-head">
     <span class="map-title">Mapa floty</span>
+    <button class="f-chip" id="map-mode-driver" onclick="setMapMode('driver')">Kierowcy</button>
+    <button class="f-chip" id="map-mode-trailer" onclick="setMapMode('trailer')">Naczepy</button>
     <span class="map-note" id="map-info">—</span>
   </div>
   <div id="map"></div>
@@ -4494,8 +4496,20 @@ function safeName(v) {
 let mapObj = null;
 let mapLayer = null;
 
+// Особистий вибір диспетчера, як тема чи фільтр груп — у localStorage,
+// не в базі.
+let mapMode = localStorage.getItem('tca_map_mode') || 'driver';
+
+function setMapMode(mode) {
+  mapMode = mode;
+  localStorage.setItem('tca_map_mode', mode);
+  // Інший набір точок — інша географія, тому межі підганяємо ще раз.
+  if (mapObj) mapObj._fitted = false;
+  renderMap();
+}
+
 /** Остання точка з координатами по кожному водієві, з усіх джерел. */
-function lastPositions() {
+function lastPositionsByDriver() {
   const byDriver = {};
 
   function put(key, name, at, lat, lon, what, truck) {
@@ -4534,12 +4548,60 @@ function lastPositions() {
     .sort((a, b) => b.at - a.at);
 }
 
+/** Остання точка з координатами по кожному причепу: де забрали, де здали. */
+function lastPositionsByTrailer() {
+  const byTrailer = {};
+
+  function put(key, label, at, lat, lon, what, truck) {
+    if (!key || lat == null || lon == null) return;
+    const t = ts(at).getTime();
+    if (!t) return;
+    const cur = byTrailer[key];
+    if (!cur || t > cur.at) {
+      byTrailer[key] = { key, name: label, at: t, lat: Number(lat), lon: Number(lon), what, truck };
+    }
+  }
+
+  allTrailers.forEach(t => {
+    const key = plateKey(t.trailer_number);
+    const label = String(t.trailer_number || '').trim();
+    // trailers_log має тільки driver_name, без driver_id — dKey() тут
+    // завжди порожній, тому канонічне ім'я через driverCards не дістати.
+    const driver = t.driver_name || '—';
+    put(key, label, t.taken_at, t.taken_lat, t.taken_lon,
+        'Podpięta (' + driver + ')', t.truck);
+    if (t.released_at) {
+      put(key, label, t.released_at, t.released_lat, t.released_lon,
+          'Oddana (' + driver + ')', t.truck);
+    }
+  });
+
+  return Object.values(byTrailer)
+    .filter(p => passesGroup(p.truck))
+    .sort((a, b) => b.at - a.at);
+}
+
+function lastPositions() {
+  return mapMode === 'trailer' ? lastPositionsByTrailer() : lastPositionsByDriver();
+}
+
+/** Коротка мітка для піна причепа: суфікс номера різнить машини одного
+    регіону краще, ніж однаковий для всіх префікс. */
+function platePinLabel(v) {
+  const k = plateKey(v);
+  return k.slice(-4) || '?';
+}
+
 function renderMap() {
   const box = document.getElementById('map');
   if (!box || typeof L === 'undefined') return;
 
   const points = lastPositions();
   const info = document.getElementById('map-info');
+  const btnDriver = document.getElementById('map-mode-driver');
+  const btnTrailer = document.getElementById('map-mode-trailer');
+  if (btnDriver) btnDriver.classList.toggle('on', mapMode === 'driver');
+  if (btnTrailer) btnTrailer.classList.toggle('on', mapMode === 'trailer');
 
   if (!mapObj) {
     mapObj = L.map('map', { scrollWheelZoom: false, attributionControl: true });
@@ -4565,9 +4627,10 @@ function renderMap() {
     // бачити, на що можна спиратись, а що вчорашнє.
     const freshH = (now - p.at) / 3600000;
     const color = freshH < 12 ? 'var(--accent)' : (freshH < 48 ? 'var(--yellow)' : 'var(--muted)');
+    const label = mapMode === 'trailer' ? platePinLabel(p.name) : initials(p.name);
     const icon = L.divIcon({
       className: '',
-      html: `<div class="map-pin" style="background:${color}">${esc(initials(p.name))}</div>`,
+      html: `<div class="map-pin" style="background:${color}">${esc(label)}</div>`,
       iconSize: [26, 26],
       iconAnchor: [13, 13],
     });
