@@ -162,6 +162,8 @@
   .kpi-num { font-size: 30px; font-weight: bold; color: var(--text); margin-top: 8px; }
   .kpi-num.red { color: var(--accent); }
   .kpi-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .kpi-click { cursor: pointer; }
+  .kpi-click:hover { border-color: var(--hover-border); }
 
   .map-box {
     background: var(--card); border: 1px solid var(--border); border-radius: 14px;
@@ -752,15 +754,10 @@
     <div class="kpi-num" id="onbreak">-</div>
     <div class="kpi-sub">teraz</div>
   </div>
-  <div class="kpi">
-    <div class="kpi-label">Kilometry</div>
-    <div class="kpi-num red" id="kpi-km">-</div>
-    <div class="kpi-sub" id="kpi-month">w tym miesiącu</div>
-  </div>
-  <div class="kpi">
-    <div class="kpi-label">Paliwo</div>
-    <div class="kpi-num red" id="kpi-fuel">-</div>
-    <div class="kpi-sub">w tym miesiącu</div>
+  <div class="kpi kpi-click" onclick="openFleetStats()" title="Kliknij, aby zobaczyć inne okresy">
+    <div class="kpi-label">Kilometry / Paliwo</div>
+    <div class="kpi-num red"><span id="kpi-km">-</span> <span style="font-size:16px; color:var(--muted)">km</span></div>
+    <div class="kpi-sub"><span id="kpi-fuel">-</span> L · <span id="kpi-month">w tym miesiącu</span> · Szczegóły ›</div>
   </div>
 </div>
 
@@ -1119,11 +1116,18 @@ let activeTrailers = {};   // drivers.id -> причіп, який зараз з
 let activeTrailerRows = [];
 let openShiftId = null;    // яка зміна розгорнута в стрічку подій
 let lastActivity = {};     // drivers.id -> { at, what, name } — остання дія водія
+let staleShifts = [];      // активні зміни, які мовчать довше легального максимуму
 let seenActivity = loadSeen();  // що диспетчер уже переглянув
 let notifList = [];             // що зараз показано в списку під дзвіночком
 let allDelegations = [];        // виїзди з дому, для вкладки Kalendarz
 let calMonth = null;            // місяць, відкритий у календарі (перше число)
 const ACTIVITY_WINDOW_H = 48;   // глибина, на яку взагалі дивимось активність
+// Поріг "зависла зміна" — дублікат lib/staleShift.ts (мобільний застосунок,
+// незалежний репозиторій, тому копія, а не імпорт, як plateKey/normPlate).
+// Легальний максимум зміни (15г соло, 21г подвійний екіпаж) + година запасу,
+// щоб не чіплятись до водія рівно в момент, коли зміна ще законна.
+const SOLO_STALE_H = 16;
+const CREW_STALE_H = 22;
 let fleetGroups = [];      // групи машин, які диспетчер зібрав сам
 let activeGroupId = localStorage.getItem('tca_group_filter') || '';  // вибраний фільтр
 
@@ -1309,10 +1313,13 @@ async function loadDataInner() {
   // Зміни й причепи вже завантажені вище. Якщо якоїсь таблиці нема,
   // повернеться порожньо — підсвітка просто врахує менше джерел.
   const actSince = new Date(Date.now() - ACTIVITY_WINDOW_H * 3600 * 1000).toISOString();
+  // shift_id тут потрібен не для підсвітки водія (та йде по driver_id), а
+  // для сигналу "зависла зміна" (buildStaleShifts) — там тиша міряється
+  // по конкретній зміні, а не по водієві взагалі.
   const [evRes, fuRes, cmrRes] = await Promise.all([
-    db.from('events').select('driver_id, driver_name, event_type, started_at, ended_at').gte('started_at', actSince),
-    db.from('fuels').select('driver_id, driver_name, liters, created_at').gte('created_at', actSince),
-    db.from('cmr').select('driver_id, driver_name, created_at').gte('created_at', actSince),
+    db.from('events').select('driver_id, driver_name, event_type, started_at, ended_at, shift_id').gte('started_at', actSince),
+    db.from('fuels').select('driver_id, driver_name, liters, created_at, shift_id').gte('created_at', actSince),
+    db.from('cmr').select('driver_id, driver_name, created_at, shift_id').gte('created_at', actSince),
   ]);
   buildActivity(evRes.data, fuRes.data, cmrRes.data);
 
@@ -2078,6 +2085,57 @@ function buildActivity(events, fuels, cmrs) {
     bump(t, t.taken_at, 'Naczepa ' + (t.trailer_number || '') + ' podpięta');
     if (t.released_at) bump(t, t.released_at, 'Naczepa oddana');
   });
+
+  staleShifts = buildStaleShifts(events, fuels, cmrs);
+}
+
+/**
+ * Активні зміни, які мовчать довше легального максимуму: жодної події,
+ * прив'язаної до shift_id, за останні staleShiftThresholdH() годин.
+ *
+ * Підозрілість міряємо тишею, а не тривалістю — та сама логіка, що і
+ * "W delegacji teraz" (STALE_DELEGATION_DAYS): 20-годинна зміна подвійного
+ * екіпажу, у якій щойно було tankowanie, — це норма, а не сигнал.
+ */
+function staleShiftThresholdH(shift) {
+  return shift.codriver_id ? CREW_STALE_H : SOLO_STALE_H;
+}
+
+function buildStaleShifts(events, fuels, cmrs) {
+  const lastByShift = {};
+  function bumpShift(shiftId, at) {
+    if (!shiftId || !at) return;
+    const t = ts(at).getTime();
+    if (!t) return;
+    if (!lastByShift[shiftId] || t > lastByShift[shiftId]) lastByShift[shiftId] = t;
+  }
+  (events || []).forEach(e => {
+    bumpShift(e.shift_id, e.started_at);
+    if (e.ended_at) bumpShift(e.shift_id, e.ended_at);
+  });
+  (fuels || []).forEach(f => bumpShift(f.shift_id, f.created_at));
+  (cmrs || []).forEach(c => bumpShift(c.shift_id, c.created_at));
+  allTrailers.forEach(t => {
+    bumpShift(t.shift_id, t.taken_at);
+    if (t.released_at) bumpShift(t.shift_id, t.released_at);
+  });
+
+  const now = Date.now();
+  return allData
+    .filter(s => s.status === 'active')
+    .map(s => {
+      const start = ts(s.start_time || s.created_at).getTime();
+      const last = Math.max(start || 0, lastByShift[s.id] || 0);
+      return { shift: s, start, last, silentH: (now - last) / 3600000 };
+    })
+    .filter(x => x.start && x.silentH > staleShiftThresholdH(x.shift))
+    .map(x => ({
+      key: 'stale:' + x.shift.id,
+      shiftId: x.shift.id,
+      name: driverName(dKey(x.shift), x.shift.driver_name),
+      at: new Date(x.last).toISOString(),
+      what: `⏱ Zmiana bez ruchu ${Math.floor(x.silentH)}h`,
+    }));
 }
 
 function isNewActivity(key) {
@@ -2087,28 +2145,37 @@ function isNewActivity(key) {
   return !seen || ts(a.at) > ts(seen);
 }
 
-/** Водія переглянули — запам'ятовуємо саме час дії, а не "зараз",
-    інакше подія, що прийшла під час перегляду, зникла б непоміченою. */
+/** Переглянули — запам'ятовуємо саме час дії, а не "зараз", інакше подія
+    (чи нова тиша), що прийшла під час перегляду, зникла б непоміченою.
+    Ключ буває або driver_id (реальна дія), або "stale:<shift_id>" —
+    шукаємо в обох списках, бо викликається однаково для обох. */
 function markSeen(key) {
   const a = lastActivity[key];
-  if (!a) return;
-  seenActivity[key] = a.at;
-  saveSeen();
+  if (a) { seenActivity[key] = a.at; saveSeen(); return; }
+  const s = staleShifts.find(x => x.key === key);
+  if (s) { seenActivity[key] = s.at; saveSeen(); }
 }
 
 function markAllSeen() {
   Object.keys(lastActivity).forEach(d => { seenActivity[d] = lastActivity[d].at; });
+  staleShifts.forEach(s => { seenActivity[s.key] = s.at; });
   saveSeen();
   renderTable();
 }
 
-/** Нові дії, найсвіжіші зверху. Один рядок = один водій. */
+/** Нові дії, найсвіжіші зверху. До реальних дій водіїв додаються
+    "завислі" зміни (тиша довше легального максимуму) — той самий
+    дзвіночок, інше джерело. */
 function newActivityList() {
-  return Object.keys(lastActivity)
+  const real = Object.keys(lastActivity)
     .filter(isNewActivity)
     .map(d => ({ key: d, name: lastActivity[d].name,
-                 at: lastActivity[d].at, what: lastActivity[d].what }))
-    .sort((a, b) => ts(b.at) - ts(a.at));
+                 at: lastActivity[d].at, what: lastActivity[d].what }));
+  const stale = staleShifts.filter(s => {
+    const seen = seenActivity[s.key];
+    return !seen || ts(s.at) > ts(seen);
+  });
+  return real.concat(stale).sort((a, b) => ts(b.at) - ts(a.at));
 }
 
 function updateNewBadge() {
@@ -2173,8 +2240,14 @@ function openFromNotif(i) {
   markSeen(item.key);
   closeNotif();
   setView('drivers');
-  const row = getLatestPerDriver(allData).find(x => dKey(x) === item.key);
-  openShiftId = row ? row.id : openShiftId;
+  // Завислу зміну знаємо по shiftId напряму — driver_id тут не годиться,
+  // бо getLatestPerDriver міг би віддати новішу зміну того самого водія.
+  if (item.shiftId) {
+    openShiftId = item.shiftId;
+  } else {
+    const row = getLatestPerDriver(allData).find(x => dKey(x) === item.key);
+    openShiftId = row ? row.id : openShiftId;
+  }
   renderTable();
   const el = document.querySelector('tr.row-main.open');
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2330,8 +2403,8 @@ function renderTable() {
     .filter(f => passesGroup(truckByShiftKpi[f.shift_id]))
     .reduce((sum, f) => sum + (parseFloat(f.liters) || 0), 0);
 
-  document.getElementById('kpi-km').textContent = km.toLocaleString('pl-PL') + ' km';
-  document.getElementById('kpi-fuel').textContent = liters.toFixed(0) + ' L';
+  document.getElementById('kpi-km').textContent = km.toLocaleString('pl-PL');
+  document.getElementById('kpi-fuel').textContent = liters.toFixed(0);
   document.getElementById('kpi-month').textContent =
     from.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
 
@@ -2400,6 +2473,163 @@ function renderTable() {
   if (openShiftId) loadTimeline(openShiftId);
 }
 
+/* ---------------------------------------------------------------------
+   Statystyki floty — km / paliwo / L100km за обраний період.
+   Клік по KPI "Kilometry / Paliwo" (та завжди показує bieżący miesiąc,
+   як і раніше) відкриває модалку з ширшим вибором.
+   --------------------------------------------------------------------- */
+
+let fleetStatsPreset = 'month';
+
+const FLEET_STATS_LABELS = {
+  week: 'Ten tydzień',
+  month: 'Ten miesiąc',
+  prevMonth: 'Poprzedni miesiąc',
+  quarter: 'Ten kwartał',
+  year: 'Ten rok',
+};
+
+function fleetStatsRange(preset) {
+  const now = new Date();
+  if (preset === 'week') {
+    // Poniedziałek tego tygodnia -> teraz
+    const mondayOffset = (now.getDay() + 6) % 7;
+    return { from: addDays(dayStart(now), -mondayOffset), to: now };
+  }
+  if (preset === 'prevMonth') {
+    return {
+      from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      to: new Date(now.getFullYear(), now.getMonth(), 1),
+    };
+  }
+  if (preset === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    return { from: new Date(now.getFullYear(), q * 3, 1), to: now };
+  }
+  if (preset === 'year') {
+    return { from: new Date(now.getFullYear(), 0, 1), to: now };
+  }
+  return { from: monthStart(), to: now };   // 'month' — bieżący
+}
+
+function openFleetStats() {
+  fleetStatsPreset = 'month';
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'fleet-stats-modal';
+  back.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3>Kilometry i paliwo</h3>
+      <div class="rp-row" id="fs-chips"></div>
+      <div id="fs-scope" style="color:var(--muted); font-size:12px; margin-top:2px"></div>
+      <div id="fs-body" style="margin-top:16px"></div>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="btn" onclick="closeFleetStats()">Zamknij</button>
+      </div>
+    </div>`;
+  back.onclick = closeFleetStats;
+  document.body.appendChild(back);
+  renderFleetStats();
+}
+
+function closeFleetStats() {
+  const el = document.getElementById('fleet-stats-modal');
+  if (el) el.remove();
+}
+
+function setFleetStatsPreset(preset) {
+  fleetStatsPreset = preset;
+  renderFleetStats();
+}
+
+/**
+ * Кілометри рахуємо з allData — він і так завантажений повністю, без
+ * обмеження по даті, тому це просто інший фільтр по тому самому масиву.
+ * Паливо за довільний період тягнемо окремим запитом: monthFuels
+ * обмежений поточним місяцем навмисно (тримає легкими і KPI на швидкий
+ * погляд, і колонку Auta) — розширювати його заради цієї модалки не варто.
+ */
+async function renderFleetStats() {
+  const chips = document.getElementById('fs-chips');
+  const scopeEl = document.getElementById('fs-scope');
+  const body = document.getElementById('fs-body');
+  if (!chips || !body) return;
+
+  chips.innerHTML = Object.keys(FLEET_STATS_LABELS).map(p => `
+    <button class="f-chip ${p === fleetStatsPreset ? 'on' : ''}" onclick="setFleetStatsPreset('${p}')">
+      ${FLEET_STATS_LABELS[p]}
+    </button>`).join('');
+
+  // Область діє й тут — ті самі числа, що вже видно на дашборді під KPI,
+  // а не окремий підбір, який міг би їм суперечити.
+  const k = scopeKind();
+  const g = activeGroup();
+  const bits = [];
+  if (k) bits.push(k === 'DHL' ? 'BDF' : 'Ogólna');
+  if (g) bits.push(g.name);
+  scopeEl.textContent = 'Zakres: ' + (bits.length ? bits.join(' · ') : 'cała flota');
+
+  body.innerHTML = '<div class="loading">Ładowanie…</div>';
+
+  const preset = fleetStatsPreset;
+  const { from, to } = fleetStatsRange(preset);
+
+  const truckByShift = {};
+  let km = 0;
+  allData.forEach(s => {
+    truckByShift[s.id] = s.truck;
+    if (!passesGroup(s.truck) || !inScope(s.group_type)) return;
+    const t = new Date(s.created_at);
+    if (t < from || t > to) return;
+    if (s.start_km == null || s.end_km == null) return;
+    const d = s.end_km - s.start_km;
+    if (d > 0) km += d;
+  });
+
+  const { data: fuelData, error } = await db
+    .from('fuels')
+    .select('shift_id, liters, created_at')
+    .gte('created_at', from.toISOString())
+    .lte('created_at', to.toISOString());
+
+  // Водій міг перемкнути пресет, поки летів запит — застаріла відповідь
+  // не повинна намалюватись поверх уже нового вибору.
+  if (fleetStatsPreset !== preset || !document.getElementById('fleet-stats-modal')) return;
+
+  const liters = (error ? [] : (fuelData || []))
+    .filter(f => passesGroup(truckByShift[f.shift_id]))
+    .reduce((sum, f) => sum + (parseFloat(f.liters) || 0), 0);
+
+  const l100 = (km > 0 && liters > 0) ? (liters / km * 100) : null;
+
+  body.innerHTML = `
+    <div class="kpis" style="margin-bottom:0">
+      <div class="kpi">
+        <div class="kpi-label">Kilometry</div>
+        <div class="kpi-num red">${km.toLocaleString('pl-PL')}</div>
+        <div class="kpi-sub">km</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Paliwo</div>
+        <div class="kpi-num red">${liters.toFixed(0)}</div>
+        <div class="kpi-sub">litrów</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Śr. spalanie</div>
+        <div class="kpi-num red">${l100 ? l100.toFixed(1) : '—'}</div>
+        <div class="kpi-sub">L/100km</div>
+      </div>
+    </div>
+    <p style="font-size:11px; color:var(--muted); margin-top:14px; line-height:1.5">
+      Przybliżone: tankowania nie zawsze są do pełna, więc L/100km na
+      krótkim okresie (tydzień) może się mocno wahać. Im dłuższy okres
+      (miesiąc, kwartał), tym dokładniej.
+    </p>
+    ${error ? '<p style="color:var(--accent); font-size:12px">Nie udało się pobrać paliwa za ten okres.</p>' : ''}
+  `;
+}
+
 // Колонка "Naczepa". Для Ogólna без причепа пишемо Solo,
 // для BDF прочерк — ця група причепи не веде.
 function trailerCell(s) {
@@ -2417,9 +2647,10 @@ function trailerCell(s) {
 }
 
 function toggleDetail(shiftId) {
-  // Розгорнув рядок — значить подивився, що там сталось
+  // Розгорнув рядок — значить подивився, що там сталось, і чи зміна
+  // не висить мовчки надто довго.
   const row = allData.find(s => s.id === shiftId);
-  if (row) markSeen(dKey(row));
+  if (row) { markSeen(dKey(row)); markSeen('stale:' + shiftId); }
   openShiftId = (openShiftId === shiftId) ? null : shiftId;
   renderTable();
 }
